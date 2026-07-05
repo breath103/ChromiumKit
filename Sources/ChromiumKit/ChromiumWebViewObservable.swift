@@ -17,6 +17,7 @@ import Observation
 /// Text(tab.webView.observable.title ?? "new tab")  // updates live
 /// ProgressView().opacity(tab.webView.observable.isLoading ? 1 : 0)
 /// ```
+@available(macOS 14, *)
 @Observable
 public final class ChromiumWebViewObservable {
     // weak: the observable is attached to the webView via

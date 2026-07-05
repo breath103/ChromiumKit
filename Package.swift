@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "ChromiumKit",
-    platforms: [.macOS(.v14)],
+    platforms: [.macOS(.v12)],
     products: [
         // Full surface for the host app — links Chromium Embedded Framework.
         .library(name: "ChromiumKit", targets: ["ChromiumKit"]),
