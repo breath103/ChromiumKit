@@ -1,5 +1,4 @@
 #import "ChromiumViewObjC.h"
-#include <atomic>
 #include <cstdint>
 #include <crt_externs.h>
 #include "include/cef_app.h"
@@ -55,15 +54,113 @@ namespace {
 static CEFSetupBlock g_setup_block = nil;
 static bool g_use_mock_keychain = false;
 
-// Coalesces external pump work. CEF calls `OnScheduleMessagePumpWork` on any
-// thread with the delay until its next scheduled work; each call REPLACES the
-// previous deadline (this is a level-triggered "soonest deadline" signal — the
-// most recent call is authoritative, same as cefclient's KillTimer+SetTimer).
-// We marshal the pump onto the main queue and stamp each schedule with a
-// generation; a queued block only calls `CefDoMessageLoopWork()` if it is still
-// the latest generation, so a burst of `delay_ms <= 0` requests collapses to a
-// single pump instead of enqueuing unbounded `CefDoMessageLoopWork` calls.
-static std::atomic<uint64_t> g_pump_generation{0};
+// External message pump — a faithful port of cefclient's
+// `MainMessageLoopExternalPump` (tests/shared/browser/) to libdispatch. CEF
+// calls `OnScheduleMessagePumpWork` on ANY thread; we marshal onto the main
+// queue (where `[NSApp run]` lives) and drive `CefDoMessageLoopWork()` there.
+//
+// The load-bearing detail — and the one the previous generation-coalescing
+// version was missing — is the 30fps HEARTBEAT. cefclient's `DoWork()` re-arms
+// a fallback timer after every pump, and clamps every requested delay to
+// `kMaxTimerDelay` (33ms). CEF does NOT re-request a pump for every unit of
+// in-flight async progress (network, renderer IPC, compositor frames); it
+// relies on the host pumping at least ~30fps. Without the heartbeat CEF pumped
+// a handful of times at startup, went idle, and a browser created later never
+// even started its navigation → permanently blank window.
+//
+// Reentrancy: `CefDoMessageLoopWork()` can spin the native run loop, which
+// drains libdispatch and can re-enter our pump. Nesting `CefDoMessageLoopWork()`
+// is illegal, so we detect it and re-post the discarded work.
+//
+// All state below is touched on the main thread only (from the marshalled
+// blocks), so no locking or atomics are needed.
+static bool g_pump_is_active = false;
+static bool g_pump_reentrancy_detected = false;
+static bool g_pump_timer_pending = false;
+static uint64_t g_pump_timer_generation = 0;
+
+// Max wait between pumps: a 30fps heartbeat (cefclient's `kMaxTimerDelay`).
+static const int64_t kPumpMaxTimerDelayMs = 1000 / 30;
+// Placeholder delay meaning "arm the heartbeat" (cefclient's
+// `kTimerDelayPlaceholder`); clamped to the heartbeat interval below.
+static const int64_t kPumpTimerPlaceholder = INT32_MAX;
+
+static void PumpDoWork();
+static void PumpScheduleFromCef(int64_t delay_ms);
+
+// Main thread. Cancels any armed heartbeat/timer: a bumped generation makes the
+// pending `dispatch_after` block a no-op.
+static void PumpKillTimer() {
+  ++g_pump_timer_generation;
+  g_pump_timer_pending = false;
+}
+
+// Main thread. Arms a one-shot timer (`delay_ms > 0`).
+static void PumpSetTimer(int64_t delay_ms) {
+  const uint64_t generation = ++g_pump_timer_generation;
+  g_pump_timer_pending = true;
+  dispatch_after(dispatch_time(DISPATCH_TIME_NOW, delay_ms * NSEC_PER_MSEC),
+                 dispatch_get_main_queue(), ^{
+                   if (g_pump_timer_generation != generation) {
+                     return;  // superseded or killed
+                   }
+                   PumpKillTimer();  // OnTimerTimeout: kill then pump
+                   PumpDoWork();
+                 });
+}
+
+// Main thread. Mirrors `MainMessageLoopExternalPump::OnScheduleWork`.
+static void PumpOnScheduleWork(int64_t delay_ms) {
+  // Don't let the heartbeat placeholder override a shorter real timer.
+  if (delay_ms == kPumpTimerPlaceholder && g_pump_timer_pending) {
+    return;
+  }
+  PumpKillTimer();
+  if (delay_ms <= 0) {
+    PumpDoWork();
+  } else {
+    if (delay_ms > kPumpMaxTimerDelayMs) {
+      delay_ms = kPumpMaxTimerDelayMs;  // never wait longer than the heartbeat
+    }
+    PumpSetTimer(delay_ms);
+  }
+}
+
+// Main thread. Mirrors `PerformMessageLoopWork` — one guarded pump iteration.
+// Returns true if a reentrant pump was detected and discarded.
+static bool PumpPerformWork() {
+  if (g_pump_is_active) {
+    // `CefDoMessageLoopWork()` is already on the stack; discard this nested
+    // pump and let the outer call re-post it.
+    g_pump_reentrancy_detected = true;
+    return false;
+  }
+  g_pump_reentrancy_detected = false;
+  g_pump_is_active = true;
+  CefDoMessageLoopWork();
+  g_pump_is_active = false;
+  return g_pump_reentrancy_detected;
+}
+
+// Main thread. Mirrors `MainMessageLoopExternalPump::DoWork`.
+static void PumpDoWork() {
+  const bool was_reentrant = PumpPerformWork();
+  if (was_reentrant) {
+    // Re-run the discarded work as soon as possible.
+    PumpScheduleFromCef(0);
+  } else if (!g_pump_timer_pending) {
+    // Keep the heartbeat alive so in-flight async work keeps progressing.
+    PumpScheduleFromCef(kPumpTimerPlaceholder);
+  }
+}
+
+// Any thread. Mirrors `OnScheduleMessagePumpWork`: hop to the main queue, then
+// schedule/pump there.
+static void PumpScheduleFromCef(int64_t delay_ms) {
+  dispatch_async(dispatch_get_main_queue(), ^{
+    PumpOnScheduleWork(delay_ms);
+  });
+}
 
 class _CEFApp : public CefApp, public CefBrowserProcessHandler {
  public:
@@ -82,26 +179,11 @@ class _CEFApp : public CefApp, public CefBrowserProcessHandler {
   }
   // External-message-pump callback (only invoked when
   // `settings.external_message_pump` is set). May be called on ANY thread, so
-  // marshal the pump onto the main queue where `[NSApp run]` lives. See
-  // `g_pump_generation` for the coalescing rationale.
+  // hand off to the main queue via `PumpScheduleFromCef`, where all the
+  // scheduling/pumping (and its reentrancy guard) runs. See the pump helpers
+  // above.
   void OnScheduleMessagePumpWork(int64_t delay_ms) override {
-    const uint64_t generation =
-        g_pump_generation.fetch_add(1, std::memory_order_relaxed) + 1;
-    void (^pump)(void) = ^{
-      // Skip if a newer schedule superseded this one; otherwise this is the
-      // authoritative next deadline — pump CEF.
-      if (g_pump_generation.load(std::memory_order_relaxed) != generation) {
-        return;
-      }
-      CefDoMessageLoopWork();
-    };
-    if (delay_ms <= 0) {
-      dispatch_async(dispatch_get_main_queue(), pump);
-    } else {
-      dispatch_after(
-          dispatch_time(DISPATCH_TIME_NOW, delay_ms * NSEC_PER_MSEC),
-          dispatch_get_main_queue(), pump);
-    }
+    PumpScheduleFromCef(delay_ms);
   }
   void OnContextInitialized() override {
     CEF_REQUIRE_UI_THREAD();
