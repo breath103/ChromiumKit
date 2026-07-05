@@ -16,6 +16,7 @@
   c.cachePath = self.cachePath;
   c.sandboxDisabled = self.sandboxDisabled;
   c.useMockKeychain = self.useMockKeychain;
+  c.externalMessagePump = self.externalMessagePump;
   return c;
 }
 

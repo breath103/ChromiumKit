@@ -45,7 +45,8 @@ public extension ChromiumConfiguration {
         locale: String? = nil,
         cachePath: URL? = nil,
         sandboxDisabled: Bool = true,
-        useMockKeychain: Bool = false
+        useMockKeychain: Bool = false,
+        externalMessagePump: Bool = false
     ) {
         self.init()
         self.userAgent = userAgent
@@ -53,5 +54,6 @@ public extension ChromiumConfiguration {
         self.cachePath = cachePath
         self.sandboxDisabled = sandboxDisabled
         self.useMockKeychain = useMockKeychain
+        self.externalMessagePump = externalMessagePump
     }
 }
