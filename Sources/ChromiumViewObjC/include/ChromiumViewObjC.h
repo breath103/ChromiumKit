@@ -35,6 +35,14 @@ NS_SWIFT_NAME(ChromiumConfiguration)
 /// doesn't ship `cef_sandbox.a`). Flip off only if linking the Sandbox
 /// Distribution.
 @property (nonatomic, assign) BOOL sandboxDisabled;
+/// Use Chromium's mock keychain instead of the macOS Keychain for "safe
+/// storage" (cookie/password encryption). Default NO. Set YES to avoid the
+/// "<App> wants to use the 'Chromium Safe Storage' key" prompt — useful for
+/// demos, CI, and automated UI tests, where the prompt blocks an unattended
+/// run. Trade-off: safe-storage encryption uses a fixed mock key rather than
+/// one held in the Keychain, so don't enable it for an app holding real
+/// credentials.
+@property (nonatomic, assign) BOOL useMockKeychain;
 @end
 
 NS_SWIFT_NAME(ChromiumApplication)

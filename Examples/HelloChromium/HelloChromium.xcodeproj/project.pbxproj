@@ -8,6 +8,8 @@
 
 /* Begin PBXBuildFile section */
 		0EF879B701BC48BE48135EFF /* TabRow.swift in Sources */ = {isa = PBXBuildFile; fileRef = 577D679024A9B7392AD41FE4 /* TabRow.swift */; };
+		14263BBA163458010FFFAA7B /* SessionRestoreUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8FB93733505C2EF98CFD7D92 /* SessionRestoreUITests.swift */; };
+		145A11B761BFF5525B60E20F /* SessionPersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0325FC5EFECDA6F6C44308E8 /* SessionPersistenceTests.swift */; };
 		1F86753C89C6BD9259B39FED /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 308A11D0A65EF09023238119 /* main.swift */; };
 		234C7962074BF14C08FC55F3 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = BABD3FA9FE22F528F7CB1948 /* main.swift */; };
 		238CB1E4DC40BEDC49F4B75A /* target-blank.html in Resources */ = {isa = PBXBuildFile; fileRef = BFC1CB4E012955DECE9034F4 /* target-blank.html */; };
@@ -15,15 +17,19 @@
 		446F52DF19C54D2E9F785E9F /* ChromiumKitHelper in Frameworks */ = {isa = PBXBuildFile; productRef = E0F832576918A7FD07E65BE6 /* ChromiumKitHelper */; };
 		5F5AFF0CF6D6BF46CFBAC90A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C5EC6E298E46D61258BD5DF /* ContentView.swift */; };
 		5F6FFCAC32D127C05B7D5E4D /* AddressBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 019198A6EB285695BC5882C5 /* AddressBar.swift */; };
-		5F8531834B35311B7FB29ECE /* BrowserTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B33A993DDA01CEC8357AAC9 /* BrowserTab.swift */; };
+		6E0D96AC970B75EA0AC91374 /* ChromiumConfigurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7752C1846282F40BAA4FCC47 /* ChromiumConfigurationTests.swift */; };
 		881102DFE6B909FA0C50F735 /* ChromiumWebViewLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = B13CE582A3A8C0675233A14D /* ChromiumWebViewLifecycleTests.swift */; };
-		A5018A371ADA7713169110BD /* TabStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A35D5557D3343760F80DFAFE /* TabStore.swift */; };
 		A81D640762B70FB9A1EF66F5 /* HibernateTabUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6BECFC2C56E8CF9CFF4CFCBD /* HibernateTabUITests.swift */; };
+		ABB59D041F2E1CA61897C2BE /* Session.swift in Sources */ = {isa = PBXBuildFile; fileRef = 881F558F15D54F2A41B899C4 /* Session.swift */; };
+		B8219A7C0D091043604C0D60 /* TabRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = C65BD23AB7B7C3B47003E782 /* TabRecord.swift */; };
 		C0AF10B2D7F05B6CD4B22E7C /* TargetBlankUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D34E1231CD61E09EA5AD83B /* TargetBlankUITests.swift */; };
+		C0DF8B2A46C85717FFAA4BEF /* TabRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6712F83A4ACE627ED814BDA /* TabRuntime.swift */; };
 		D7426D5E4F87360F1FD3D462 /* ChromiumKit in Frameworks */ = {isa = PBXBuildFile; productRef = 037BEB1370BFFDAE031D2C8C /* ChromiumKit */; };
 		E06B5C396C4B5412F93B0002 /* AddressBarUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3769D4A4BBF4081DEEB360F8 /* AddressBarUITests.swift */; };
 		EC43D48F466175B07EE4C768 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C7A782B377BE86BE58CBA52 /* AppDelegate.swift */; };
+		EDC3145BE1110805F3FFC6A9 /* CloseTabUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B5F79F7A11BA0D22EEBACE /* CloseTabUITests.swift */; };
 		F0B1BF62BA2DC49E7DF7F42E /* ChromiumKit in Frameworks */ = {isa = PBXBuildFile; productRef = BE93FC28F7EE9EA0E74717CD /* ChromiumKit */; };
+		FD51A6A8C643F14C62410446 /* TabRuntimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01D43F9C9B64F414197C73A9 /* TabRuntimeTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -52,24 +58,30 @@
 
 /* Begin PBXFileReference section */
 		019198A6EB285695BC5882C5 /* AddressBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressBar.swift; sourceTree = "<group>"; };
+		01D43F9C9B64F414197C73A9 /* TabRuntimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabRuntimeTests.swift; sourceTree = "<group>"; };
 		025FF931F7B55DC5EA53CB54 /* FaviconView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaviconView.swift; sourceTree = "<group>"; };
+		0325FC5EFECDA6F6C44308E8 /* SessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceTests.swift; sourceTree = "<group>"; };
+		1A7145DFDB39E43A7CC2BAAE /* ChromiumKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ChromiumKit; path = ../..; sourceTree = SOURCE_ROOT; };
 		1C5EC6E298E46D61258BD5DF /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		1EC12FB453CC0FBE23076850 /* HelloChromiumHelper */ = {isa = PBXFileReference; includeInIndex = 0; path = HelloChromiumHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		308A11D0A65EF09023238119 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		3769D4A4BBF4081DEEB360F8 /* AddressBarUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddressBarUITests.swift; sourceTree = "<group>"; };
-		3B33A993DDA01CEC8357AAC9 /* BrowserTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowserTab.swift; sourceTree = "<group>"; };
 		4C7A782B377BE86BE58CBA52 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		577D679024A9B7392AD41FE4 /* TabRow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabRow.swift; sourceTree = "<group>"; };
 		58DA3435E60414F542BCDB9C /* HelloChromiumUnitTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HelloChromiumUnitTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		66B5F79F7A11BA0D22EEBACE /* CloseTabUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseTabUITests.swift; sourceTree = "<group>"; };
 		6BECFC2C56E8CF9CFF4CFCBD /* HibernateTabUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HibernateTabUITests.swift; sourceTree = "<group>"; };
+		7752C1846282F40BAA4FCC47 /* ChromiumConfigurationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromiumConfigurationTests.swift; sourceTree = "<group>"; };
+		881F558F15D54F2A41B899C4 /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
 		8DF6B8A0F2F76CEC5D1D2DF5 /* HelloChromium.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = HelloChromium.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8FB93733505C2EF98CFD7D92 /* SessionRestoreUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionRestoreUITests.swift; sourceTree = "<group>"; };
 		9D34E1231CD61E09EA5AD83B /* TargetBlankUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TargetBlankUITests.swift; sourceTree = "<group>"; };
-		A35D5557D3343760F80DFAFE /* TabStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabStore.swift; sourceTree = "<group>"; };
 		B13CE582A3A8C0675233A14D /* ChromiumWebViewLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromiumWebViewLifecycleTests.swift; sourceTree = "<group>"; };
 		BABD3FA9FE22F528F7CB1948 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		BFC1CB4E012955DECE9034F4 /* target-blank.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = "target-blank.html"; sourceTree = "<group>"; };
+		C65BD23AB7B7C3B47003E782 /* TabRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabRecord.swift; sourceTree = "<group>"; };
 		C8E0CA63EC7F36A6377CF644 /* HelloChromiumUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = HelloChromiumUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		F48A8C27B2F1C6E3464F8C36 /* CEF */ = {isa = PBXFileReference; lastKnownFileType = folder; name = CEF; path = ../..; sourceTree = SOURCE_ROOT; };
+		E6712F83A4ACE627ED814BDA /* TabRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabRuntime.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -103,7 +115,7 @@
 		2CDD81ED7BEA73E7D7262459 /* Packages */ = {
 			isa = PBXGroup;
 			children = (
-				F48A8C27B2F1C6E3464F8C36 /* CEF */,
+				1A7145DFDB39E43A7CC2BAAE /* ChromiumKit */,
 			);
 			name = Packages;
 			sourceTree = "<group>";
@@ -113,12 +125,13 @@
 			children = (
 				019198A6EB285695BC5882C5 /* AddressBar.swift */,
 				4C7A782B377BE86BE58CBA52 /* AppDelegate.swift */,
-				3B33A993DDA01CEC8357AAC9 /* BrowserTab.swift */,
 				1C5EC6E298E46D61258BD5DF /* ContentView.swift */,
 				025FF931F7B55DC5EA53CB54 /* FaviconView.swift */,
 				BABD3FA9FE22F528F7CB1948 /* main.swift */,
+				881F558F15D54F2A41B899C4 /* Session.swift */,
+				C65BD23AB7B7C3B47003E782 /* TabRecord.swift */,
 				577D679024A9B7392AD41FE4 /* TabRow.swift */,
-				A35D5557D3343760F80DFAFE /* TabStore.swift */,
+				E6712F83A4ACE627ED814BDA /* TabRuntime.swift */,
 			);
 			path = HelloChromium;
 			sourceTree = "<group>";
@@ -146,7 +159,10 @@
 		3B284F6E1090FC8C71D8932F /* HelloChromiumUnitTests */ = {
 			isa = PBXGroup;
 			children = (
+				7752C1846282F40BAA4FCC47 /* ChromiumConfigurationTests.swift */,
 				B13CE582A3A8C0675233A14D /* ChromiumWebViewLifecycleTests.swift */,
+				0325FC5EFECDA6F6C44308E8 /* SessionPersistenceTests.swift */,
+				01D43F9C9B64F414197C73A9 /* TabRuntimeTests.swift */,
 			);
 			path = HelloChromiumUnitTests;
 			sourceTree = "<group>";
@@ -182,7 +198,9 @@
 			isa = PBXGroup;
 			children = (
 				3769D4A4BBF4081DEEB360F8 /* AddressBarUITests.swift */,
+				66B5F79F7A11BA0D22EEBACE /* CloseTabUITests.swift */,
 				6BECFC2C56E8CF9CFF4CFCBD /* HibernateTabUITests.swift */,
+				8FB93733505C2EF98CFD7D92 /* SessionRestoreUITests.swift */,
 				9D34E1231CD61E09EA5AD83B /* TargetBlankUITests.swift */,
 				FCFA6FA26182F776773E5D1A /* fixtures */,
 			);
@@ -378,7 +396,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				E06B5C396C4B5412F93B0002 /* AddressBarUITests.swift in Sources */,
+				EDC3145BE1110805F3FFC6A9 /* CloseTabUITests.swift in Sources */,
 				A81D640762B70FB9A1EF66F5 /* HibernateTabUITests.swift in Sources */,
+				14263BBA163458010FFFAA7B /* SessionRestoreUITests.swift in Sources */,
 				C0AF10B2D7F05B6CD4B22E7C /* TargetBlankUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -387,7 +407,10 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6E0D96AC970B75EA0AC91374 /* ChromiumConfigurationTests.swift in Sources */,
 				881102DFE6B909FA0C50F735 /* ChromiumWebViewLifecycleTests.swift in Sources */,
+				145A11B761BFF5525B60E20F /* SessionPersistenceTests.swift in Sources */,
+				FD51A6A8C643F14C62410446 /* TabRuntimeTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -397,11 +420,12 @@
 			files = (
 				5F6FFCAC32D127C05B7D5E4D /* AddressBar.swift in Sources */,
 				EC43D48F466175B07EE4C768 /* AppDelegate.swift in Sources */,
-				5F8531834B35311B7FB29ECE /* BrowserTab.swift in Sources */,
 				5F5AFF0CF6D6BF46CFBAC90A /* ContentView.swift in Sources */,
 				3FF7BA68CAD5DA2D87BD2113 /* FaviconView.swift in Sources */,
+				ABB59D041F2E1CA61897C2BE /* Session.swift in Sources */,
+				B8219A7C0D091043604C0D60 /* TabRecord.swift in Sources */,
 				0EF879B701BC48BE48135EFF /* TabRow.swift in Sources */,
-				A5018A371ADA7713169110BD /* TabStore.swift in Sources */,
+				C0DF8B2A46C85717FFAA4BEF /* TabRuntime.swift in Sources */,
 				234C7962074BF14C08FC55F3 /* main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -534,6 +558,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_TESTABILITY = YES;
 				INFOPLIST_FILE = HelloChromium/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -549,6 +574,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_TESTABILITY = YES;
 				INFOPLIST_FILE = HelloChromium/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",

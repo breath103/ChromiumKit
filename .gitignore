@@ -38,3 +38,6 @@ Package.resolved
 
 # project-task scratch
 .tmp/
+
+# Local env (e.g. CHROMIUMKIT_SIGN_IDENTITY). Template: .env.example
+.env

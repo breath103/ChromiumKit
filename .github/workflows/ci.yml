@@ -51,8 +51,13 @@ jobs:
 
       # Build for arm64 only. macos-15 runners may be x86_64 or arm64 depending
       # on the queue; force arm64 to match the package's published slice.
+      # Defaults to ad-hoc ("-"). To sign CI with a real identity, set the repo
+      # variable CHROMIUMKIT_SIGN_IDENTITY and add a step that imports the cert
+      # from secrets into a keychain first (see documents/code-signing.md).
       - name: xcodebuild
         working-directory: Examples/HelloChromium
+        env:
+          CHROMIUMKIT_SIGN_IDENTITY: ${{ vars.CHROMIUMKIT_SIGN_IDENTITY || '-' }}
         run: |
           xcodebuild \
             -project HelloChromium.xcodeproj \
@@ -61,5 +66,5 @@ jobs:
             -destination 'platform=macOS,arch=arm64' \
             ONLY_ACTIVE_ARCH=YES \
             CODE_SIGN_STYLE=Manual \
-            CODE_SIGN_IDENTITY=- \
+            CODE_SIGN_IDENTITY="$CHROMIUMKIT_SIGN_IDENTITY" \
             build

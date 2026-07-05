@@ -6,6 +6,10 @@ final class AddressBarUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
+        // Isolate from the real session store: a fresh temp SQLite per run, so
+        // the app starts from its seeded single-tab state, deterministically.
+        app.launchEnvironment["HELLOCHROMIUM_STORE_PATH"] =
+            NSTemporaryDirectory() + "ck-addressbar-\(UUID().uuidString).sqlite"
         app.launch()
     }
 

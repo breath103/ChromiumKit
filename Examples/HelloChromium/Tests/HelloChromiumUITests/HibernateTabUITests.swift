@@ -6,6 +6,9 @@ final class HibernateTabUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
+        // Isolate from the real session store: a fresh temp SQLite per run.
+        app.launchEnvironment["HELLOCHROMIUM_STORE_PATH"] =
+            NSTemporaryDirectory() + "ck-hibernate-\(UUID().uuidString).sqlite"
         app.launch()
     }
 
@@ -16,7 +19,7 @@ final class HibernateTabUITests: XCTestCase {
     /// Right-click a sidebar row → choose Hibernate → assert the row sprouts the
     /// `moon.zzz` badge. Then right-click again → Wake up → assert the badge is gone.
     func testHibernateThenWake() {
-        // The sidebar has two tabs at launch; grab the first row.
+        // The seeded session has one tab at launch; grab the first row.
         let firstRow = app.outlines.firstMatch.outlineRows.element(boundBy: 0)
         XCTAssertTrue(firstRow.waitForExistence(timeout: 10), "first tab row missing")
 

@@ -49,6 +49,8 @@ targets:
         NSSupportsAutomaticGraphicsSwitching: true
     settings:
       PRODUCT_BUNDLE_IDENTIFIER: org.example.HelloChromium
+      # Let the unit-test target `@testable import HelloChromium`.
+      ENABLE_TESTABILITY: YES
     dependencies:
       - package: ChromiumKit
         product: ChromiumKit

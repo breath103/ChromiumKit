@@ -6,6 +6,9 @@ final class TargetBlankUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         app = XCUIApplication()
+        // Isolate from the real session store: a fresh temp SQLite per run.
+        app.launchEnvironment["HELLOCHROMIUM_STORE_PATH"] =
+            NSTemporaryDirectory() + "ck-targetblank-\(UUID().uuidString).sqlite"
         app.launch()
     }
 
@@ -22,7 +25,8 @@ final class TargetBlankUITests: XCTestCase {
         let initialRowCount = outline.outlineRows.count
 
         let fixtureURL = try XCTUnwrap(Bundle(for: type(of: self))
-            .url(forResource: "target-blank", withExtension: "html"))
+            .url(forResource: "target-blank", withExtension: "html")
+        )
 
         // Navigate the selected tab to the fixture.
         let display = app.buttons["addressBar.display"]

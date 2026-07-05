@@ -15,6 +15,7 @@
   c.locale = self.locale;
   c.cachePath = self.cachePath;
   c.sandboxDisabled = self.sandboxDisabled;
+  c.useMockKeychain = self.useMockKeychain;
   return c;
 }
 

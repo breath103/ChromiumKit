@@ -1,25 +1,31 @@
+import ChromiumKit
 import SwiftUI
 
 struct AddressBar: View {
-    let tab: BrowserTab?
+    let tab: TabRecord?
+    @Environment(TabRuntime.self) private var runtime
 
     @FocusState private var fieldFocused: Bool
     @State private var editText: String = ""
 
+    private var webView: ChromiumWebView? {
+        tab.flatMap { runtime.liveWebView(for: $0) }
+    }
+
     var body: some View {
         HStack(spacing: 8) {
-            Button { tab?.webView?.goBack() } label: { Image(systemName: "chevron.left") }
-                .disabled(tab?.webView?.observable.canGoBack != true)
+            Button { webView?.goBack() } label: { Image(systemName: "chevron.left") }
+                .disabled(webView?.observable.canGoBack != true)
                 .help("Back")
-            Button { tab?.webView?.goForward() } label: { Image(systemName: "chevron.right") }
-                .disabled(tab?.webView?.observable.canGoForward != true)
+            Button { webView?.goForward() } label: { Image(systemName: "chevron.right") }
+                .disabled(webView?.observable.canGoForward != true)
                 .help("Forward")
-            if tab?.webView?.observable.isLoading == true {
-                Button { tab?.webView?.stopLoading() } label: { Image(systemName: "xmark") }
+            if webView?.observable.isLoading == true {
+                Button { webView?.stopLoading() } label: { Image(systemName: "xmark") }
                     .help("Stop")
             } else {
-                Button { tab?.webView?.reload() } label: { Image(systemName: "arrow.clockwise") }
-                    .disabled(tab?.webView == nil)
+                Button { webView?.reload() } label: { Image(systemName: "arrow.clockwise") }
+                    .disabled(webView == nil)
                     .help("Reload")
             }
 
@@ -48,7 +54,7 @@ struct AddressBar: View {
                 .accessibilityIdentifier("addressBar.field")
 
             Button {
-                editText = tab?.displayURL.absoluteString ?? ""
+                editText = tab?.url.absoluteString ?? ""
                 fieldFocused = true
             } label: {
                 HStack(spacing: 6) {
@@ -74,11 +80,9 @@ struct AddressBar: View {
         guard !trimmed.isEmpty else { return }
         let withScheme = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
         guard let url = URL(string: withScheme) else { return }
-        if tab.isHibernated {
-            tab.wake(loading: url)
-        } else {
-            tab.webView?.load(url)
-        }
+        // Wake-if-needed, then navigate. A freshly woken view loads the record's
+        // URL; loading the typed URL right after just navigates it onward.
+        runtime.wake(tab).load(url)
         fieldFocused = false
     }
 }

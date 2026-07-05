@@ -23,12 +23,22 @@
 namespace {
 
 static CEFSetupBlock g_setup_block = nil;
+static bool g_use_mock_keychain = false;
 
 class _CEFApp : public CefApp, public CefBrowserProcessHandler {
  public:
   _CEFApp() = default;
   CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override {
     return this;
+  }
+  // Append global Chromium switches before any process starts. `--use-mock-keychain`
+  // makes OSCrypt skip the macOS Keychain (no "Chromium Safe Storage" prompt).
+  void OnBeforeCommandLineProcessing(
+      const CefString& process_type,
+      CefRefPtr<CefCommandLine> command_line) override {
+    if (g_use_mock_keychain) {
+      command_line->AppendSwitch("use-mock-keychain");
+    }
   }
   void OnContextInitialized() override {
     CEF_REQUIRE_UI_THREAD();
@@ -71,6 +81,7 @@ class _CEFApp : public CefApp, public CefBrowserProcessHandler {
           .FromString(config.cachePath.path.UTF8String);
     }
     g_setup_block = [setup copy];
+    g_use_mock_keychain = config ? config.useMockKeychain : false;
     CefRefPtr<_CEFApp> app(new _CEFApp);
     if (!CefInitialize(main_args, settings, app.get(), nullptr)) {
       return CefGetExitCode();

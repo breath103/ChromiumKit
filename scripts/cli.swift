@@ -48,6 +48,18 @@ func ensureCEF() -> Int32 {
     return run("/bin/bash", [fetchScript.path])
 }
 
+/// Code-signing args for xcodebuild. Defaults to ad-hoc ("-") so CI and fresh
+/// checkouts work with no setup. Export `CHROMIUMKIT_SIGN_IDENTITY` (from your
+/// shell — direnv, a sourced `.env`, or your profile) to a stable local identity
+/// (e.g. a self-signed "ChromiumKit Local" cert from
+/// scripts/make-signing-identity.sh) and macOS keeps your Keychain "Always Allow"
+/// and XCTest automation grants across rebuilds — ad-hoc signing gets a fresh
+/// identity every build, so those grants re-prompt forever otherwise.
+func signingArgs() -> [String] {
+    let identity = ProcessInfo.processInfo.environment["CHROMIUMKIT_SIGN_IDENTITY"] ?? "-"
+    return ["CODE_SIGN_STYLE=Manual", "CODE_SIGN_IDENTITY=\(identity)"]
+}
+
 /// Build + run one test target, optionally narrowed to a `Class` or `Class/method`.
 func xcodebuildTest(target: String, filter: String?) -> Int32 {
     if case let code = ensureCEF(), code != 0 { return code }
@@ -58,8 +70,8 @@ func xcodebuildTest(target: String, filter: String?) -> Int32 {
         "-project", project.path,
         "-scheme", "HelloChromium",
         "-destination", "platform=macOS",
-        "-only-testing:\(onlyTesting)",
-    ])
+        "-only-testing:\(onlyTesting)"
+    ] + signingArgs())
 }
 
 /// Locate an executable on PATH (like `which`). Returns its path, or nil if absent.
@@ -107,7 +119,7 @@ func xcodeBuildExample() -> Int32 {
         "ONLY_ACTIVE_ARCH=YES",
         "CODE_SIGN_STYLE=Manual",
         "CODE_SIGN_IDENTITY=-",
-        "build",
+        "build"
     ], cwd: hello)
 }
 
@@ -115,9 +127,9 @@ func xcodeBuildExample() -> Int32 {
 
 struct Subcommand {
     let name: String
-    let summary: String        // one line, shown in the top-level list
-    let usage: String          // argument shape, shown in `<cmd> --help`
-    let discussion: String     // longer help body
+    let summary: String // one line, shown in the top-level list
+    let usage: String // argument shape, shown in `<cmd> --help`
+    let discussion: String // longer help body
     let examples: [String]
     let run: (_ args: [String]) -> Int32
 
@@ -135,7 +147,9 @@ struct Subcommand {
 
         EXAMPLES
         """)
-        for ex in examples { print("  \(ex)") }
+        for ex in examples {
+            print("  \(ex)")
+        }
     }
 }
 
@@ -179,7 +193,7 @@ let subcommands: [Subcommand] = [
         examples: [
             "scripts/cli.swift ui",
             "scripts/cli.swift ui AddressBarUITests",
-            "scripts/cli.swift ui AddressBarUITests/testEscapeCancelsEdit",
+            "scripts/cli.swift ui AddressBarUITests/testEscapeCancelsEdit"
         ]
     ),
     testSubcommand(
@@ -189,7 +203,7 @@ let subcommands: [Subcommand] = [
         suiteHint: "Lifecycle/retain-cycle checks that don't drive the app window.",
         examples: [
             "scripts/cli.swift unit",
-            "scripts/cli.swift unit ChromiumWebViewLifecycleTests",
+            "scripts/cli.swift unit ChromiumWebViewLifecycleTests"
         ]
     ),
     Subcommand(
@@ -228,7 +242,7 @@ let subcommands: [Subcommand] = [
         let build = swiftBuildRelease()
         if build != 0 { return build }
         return xcodeBuildExample()
-    },
+    }
 ]
 
 // MARK: - Top-level dispatch

@@ -44,12 +44,14 @@ public extension ChromiumConfiguration {
         userAgent: String? = nil,
         locale: String? = nil,
         cachePath: URL? = nil,
-        sandboxDisabled: Bool = true
+        sandboxDisabled: Bool = true,
+        useMockKeychain: Bool = false
     ) {
         self.init()
         self.userAgent = userAgent
         self.locale = locale
         self.cachePath = cachePath
         self.sandboxDisabled = sandboxDisabled
+        self.useMockKeychain = useMockKeychain
     }
 }
