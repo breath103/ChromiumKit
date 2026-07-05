@@ -43,6 +43,16 @@ NS_SWIFT_NAME(ChromiumConfiguration)
 /// one held in the Keychain, so don't enable it for an app holding real
 /// credentials.
 @property (nonatomic, assign) BOOL useMockKeychain;
+/// Run CEF as an EXTERNAL message pump instead of letting CEF own the run loop.
+/// Default NO: `ChromiumApplication.run` calls `CefRunMessageLoop()`, which runs
+/// Chromium's own loop and never `[NSApp run]`. Set YES when the HOST wants to
+/// own the AppKit run loop (`[NSApp run]`) — CEF then sets
+/// `external_message_pump` and is pumped via `CefDoMessageLoopWork()` scheduled
+/// onto the main queue from `OnScheduleMessagePumpWork`. This lets AppKit's run
+/// loop keep draining libdispatch and the Swift main-actor executor, which
+/// `CefRunMessageLoop()` starves — required for any host that awaits on the
+/// main actor (e.g. SwiftUI `.task`) between AppKit events.
+@property (nonatomic, assign) BOOL externalMessagePump;
 @end
 
 NS_SWIFT_NAME(ChromiumApplication)
