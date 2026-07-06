@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     let runtime = TabRuntime()
     private var container: ModelContainer!
     var window: NSWindow!
+    private var downloadObservation: NSKeyValueObservation?
 
     func makeMenu() {
         // ChromiumApplication overrides `terminate:` to call CefQuitMessageLoop,
@@ -35,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configureBridgeProofIfRequested(session)
         configureDocumentStartProofIfRequested(session)
         configureCookieProofIfRequested()
+        configureDownloadProofIfRequested(session)
         runtime.reconcileLiveTabs() // start reacting to tab deletions
 
         window = NSWindow(
@@ -119,7 +121,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // Flush SwiftData's deferred autosave so the latest tab state reaches disk.
+    /// Download round-trip proof (drives DownloadUITests). When
+    /// `HELLOCHROMIUM_DOWNLOAD_PROOF` is set, wire the runtime's download
+    /// delegate to save into an isolated temp dir, point the seeded tab at a
+    /// forced-download URL, observe the `ChromiumDownload` to completion, read
+    /// the written file back, and stamp its contents into the window title as
+    /// `download:<contents>`. `download:hello-download` proves CEF's
+    /// `CefDownloadHandler` delivered the bytes to disk; `download:MISSING`
+    /// (file absent/empty) would prove it did not.
+    private func configureDownloadProofIfRequested(_ session: Session) {
+        guard ProcessInfo.processInfo.environment["HELLOCHROMIUM_DOWNLOAD_PROOF"] != nil
+        else { return }
+        let dir = ProcessInfo.processInfo.environment["HELLOCHROMIUM_DOWNLOAD_DIR"]
+            .map { URL(fileURLWithPath: $0) } ?? FileManager.default.temporaryDirectory
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        runtime.onDownload = { [weak self] download, suggestedFilename, completion in
+            let name = suggestedFilename.isEmpty ? "download.bin" : suggestedFilename
+            let dest = dir.appendingPathComponent(name)
+            try? FileManager.default.removeItem(at: dest)
+            self?.observeDownload(download, writtenTo: dest)
+            completion(dest)
+        }
+        // A top-level navigation to an octet-stream data: URL is unrenderable, so
+        // Chromium turns it into a download. Override with HELLOCHROMIUM_DOWNLOAD_URL
+        // (e.g. a real Content-Disposition:attachment URL) if needed.
+        let trigger = ProcessInfo.processInfo.environment["HELLOCHROMIUM_DOWNLOAD_URL"]
+            .flatMap { URL(string: $0) }
+            // base64("hello-download")
+            ?? URL(string: "data:application/octet-stream;base64,aGVsbG8tZG93bmxvYWQ=")!
+        session.orderedTabs.first?.url = trigger
+    }
+
+    private func observeDownload(_ download: ChromiumDownload, writtenTo dest: URL) {
+        downloadObservation = download.observe(\.isComplete, options: [.new]) { [weak self] dl, _ in
+            guard dl.isComplete else { return }
+            MainActor.assumeIsolated {
+                let contents = (try? Data(contentsOf: dest))
+                    .flatMap { String(data: $0, encoding: .utf8) }
+                self?.window.title = "download:\(contents ?? "MISSING")"
+            }
+        }
+    }
+
+        // Flush SwiftData's deferred autosave so the latest tab state reaches disk.
     func applicationWillTerminate(_: Notification) {
         try? container?.mainContext.save()
     }

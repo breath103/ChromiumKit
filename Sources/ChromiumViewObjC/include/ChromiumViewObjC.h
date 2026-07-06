@@ -6,7 +6,9 @@ NS_ASSUME_NONNULL_BEGIN
 
 @class ChromiumView;
 @class ChromiumConfiguration;
+@class ChromiumDownload;
 @protocol ChromiumNavigationDelegate;
+@protocol ChromiumDownloadDelegate;
 
 /// Backing object for a single favicon download. Identity = URL: when the
 /// page swaps to a new favicon URL, `ChromiumView.favicon` is replaced with a
@@ -111,6 +113,63 @@ NS_SWIFT_NAME(ChromiumNavigationDelegate)
     NS_SWIFT_NAME(webView(_:requestsNewTabFor:userGesture:disposition:));
 @end
 
+#pragma mark - Downloads
+
+/// A live handle to a single file download started inside a ChromiumView —
+/// the ChromiumKit analogue of `WKDownload`. Progress and lifecycle fields are
+/// KVO-observable (like `WKDownload.progress`); retain this handle to control
+/// the download via `pause` / `resume` / `cancel`. Delivered to the
+/// `ChromiumDownloadDelegate`; backed by CEF's `CefDownloadItem` +
+/// `CefDownloadItemCallback`.
+NS_SWIFT_NAME(ChromiumDownload)
+@interface ChromiumDownload : NSObject
+/// The download URL (after redirects).
+@property (nonatomic, readonly, nullable) NSURL* url;
+/// The original URL before any redirection.
+@property (nonatomic, readonly, nullable) NSURL* originalURL;
+/// CEF's suggested file name for the download.
+@property (nonatomic, readonly, nullable) NSString* suggestedFilename;
+/// The download's MIME type, if known.
+@property (nonatomic, readonly, nullable) NSString* mimeType;
+/// The full path to the (downloading or finished) file once a destination has
+/// been chosen. KVO-observable.
+@property (nonatomic, readonly, nullable) NSURL* fileURL;
+/// Bytes received so far. KVO-observable.
+@property (nonatomic, readonly) long long receivedBytes;
+/// Total bytes expected, or -1 if unknown. KVO-observable.
+@property (nonatomic, readonly) long long totalBytes;
+/// YES while the download is running. KVO-observable.
+@property (nonatomic, readonly, getter=isInProgress) BOOL inProgress;
+/// YES once the download has finished successfully. KVO-observable.
+@property (nonatomic, readonly, getter=isComplete) BOOL complete;
+/// YES once the download has been canceled or interrupted. KVO-observable.
+@property (nonatomic, readonly, getter=isCanceled) BOOL canceled;
+/// Cancel the download. Any partially-written file is removed by CEF.
+- (void)cancel;
+/// Pause the download. Resume with `resume`.
+- (void)pause;
+/// Resume a paused download.
+- (void)resume;
+- (instancetype)init NS_UNAVAILABLE;
+@end
+
+/// Delegate that decides where a ChromiumView's downloads are written — the
+/// ChromiumKit analogue of `WKDownloadDelegate`'s
+/// `download(_:decideDestinationUsing:suggestedFilename:)`.
+NS_SWIFT_NAME(ChromiumDownloadDelegate)
+@protocol ChromiumDownloadDelegate <NSObject>
+/// A download is about to begin. Provide the full destination file URL
+/// (including file name) via `completionHandler`, or `nil` to cancel the
+/// download. Called on the MAIN THREAD; `completionHandler` may be invoked
+/// asynchronously (e.g. after a save panel) and must be called on the main
+/// thread.
+- (void)webView:(ChromiumView*)webView
+    decideDestinationForDownload:(ChromiumDownload*)download
+               suggestedFilename:(NSString*)suggestedFilename
+               completionHandler:(void (^)(NSURL* _Nullable destination))completionHandler
+    NS_SWIFT_NAME(webView(_:decideDestinationFor:suggestedFilename:completionHandler:));
+@end
+
 NS_SWIFT_NAME(ChromiumWebView)
 @interface ChromiumView : NSView
 
@@ -126,6 +185,9 @@ NS_SWIFT_NAME(ChromiumWebView)
 /// callback writing to one is harmless. KVO-observable.
 @property (nonatomic, readonly, nullable) CEFFaviconRef* favicon;
 @property (nonatomic, weak, nullable) id<ChromiumNavigationDelegate> navigationDelegate;
+/// Delegate that chooses download destinations. When nil, downloads are
+/// canceled (no default save handling).
+@property (nonatomic, weak, nullable) id<ChromiumDownloadDelegate> downloadDelegate;
 
 - (instancetype)initWithFrame:(NSRect)frame URL:(nullable NSURL*)url NS_DESIGNATED_INITIALIZER;
 - (instancetype)initWithFrame:(NSRect)frame NS_UNAVAILABLE;

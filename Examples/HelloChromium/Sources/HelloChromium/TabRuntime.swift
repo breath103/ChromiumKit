@@ -38,6 +38,13 @@ final class TabRuntime: NSObject {
     /// leave it nil.
     @ObservationIgnored var documentStartScript: String?
 
+    /// Optional download destination provider. When set, every live web view
+    /// installs this runtime as its `downloadDelegate`; a starting download asks
+    /// this closure (via the delegate) for a destination file URL, or nil to
+    /// cancel. The download UI test sets it; normal runs leave it nil so
+    /// unhandled downloads are canceled.
+    @ObservationIgnored var onDownload: ((ChromiumDownload, String, @escaping (URL?) -> Void) -> Void)?
+
     /// The live web view for a record, or nil if the tab is hibernated. Pure
     /// lookup — safe to call from a SwiftUI view body.
     func liveWebView(for record: TabRecord) -> ChromiumWebView? {
@@ -116,6 +123,9 @@ final class TabRuntime: NSObject {
         if let documentStartScript {
             webView.addUserScript(atDocumentStart: documentStartScript)
         }
+        if onDownload != nil {
+            webView.downloadDelegate = self
+        }
         live[record.id] = LiveTab(webView: webView, record: record)
         return webView
     }
@@ -174,6 +184,26 @@ extension TabRuntime: ChromiumNavigationDelegate {
                 session.selectedTabID = record.id
             }
             return shell
+        }
+    }
+}
+
+extension TabRuntime: ChromiumDownloadDelegate {
+    // CEF invokes this on the main thread; hop into the actor. Forward to the
+    // configured `onDownload` closure (which supplies a destination), or cancel
+    // by completing with nil when no provider is set.
+    nonisolated func webView(
+        _: ChromiumWebView,
+        decideDestinationFor download: ChromiumDownload,
+        suggestedFilename: String,
+        completionHandler: @escaping (URL?) -> Void
+    ) {
+        MainActor.assumeIsolated {
+            if let onDownload {
+                onDownload(download, suggestedFilename, completionHandler)
+            } else {
+                completionHandler(nil)
+            }
         }
     }
 }

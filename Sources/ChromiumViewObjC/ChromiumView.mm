@@ -3,6 +3,7 @@
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
 #include "include/cef_devtools_message_observer.h"
+#include "include/cef_download_handler.h"
 #include "include/cef_parser.h"
 #include "include/cef_request_handler.h"
 #include "include/wrapper/cef_helpers.h"
@@ -17,6 +18,65 @@
 - (instancetype)initWithURL:(NSURL*)url {
   if ((self = [super init])) { _url = [url copy]; }
   return self;
+}
+@end
+
+// A live handle to one CEF download. Created in OnBeforeDownload, updated on
+// each OnDownloadUpdated. Progress/lifecycle fields are declared readwrite here
+// so their synthesized setters fire KVO (public header exposes them readonly).
+// Holds the latest CefDownloadItemCallback so pause/resume/cancel can drive the
+// download. All CEF-callback methods are invoked on the main thread — which is
+// CEF's UI thread — so the callbacks are called directly, no extra hop.
+@interface ChromiumDownload () {
+  CefRefPtr<CefDownloadItemCallback> _itemCallback;
+  BOOL _pendingCancel;
+}
+@property (nonatomic, assign) uint32_t downloadId;
+@property (nonatomic, strong, readwrite, nullable) NSURL* url;
+@property (nonatomic, strong, readwrite, nullable) NSURL* originalURL;
+@property (nonatomic, copy, readwrite, nullable) NSString* suggestedFilename;
+@property (nonatomic, copy, readwrite, nullable) NSString* mimeType;
+@property (nonatomic, strong, readwrite, nullable) NSURL* fileURL;
+@property (nonatomic, assign, readwrite) long long receivedBytes;
+@property (nonatomic, assign, readwrite) long long totalBytes;
+@property (nonatomic, assign, readwrite, getter=isInProgress) BOOL inProgress;
+@property (nonatomic, assign, readwrite, getter=isComplete) BOOL complete;
+@property (nonatomic, assign, readwrite, getter=isCanceled) BOOL canceled;
+@end
+
+@implementation ChromiumDownload
+- (instancetype)initWithDownloadId:(uint32_t)downloadId {
+  if ((self = [super init])) {
+    _downloadId = downloadId;
+    _totalBytes = -1;
+  }
+  return self;
+}
+
+- (void)cancel {
+  if (_itemCallback) { _itemCallback->Cancel(); }
+  else { _pendingCancel = YES; }
+}
+
+- (void)pause {
+  if (_itemCallback) { _itemCallback->Pause(); }
+}
+
+- (void)resume {
+  if (_itemCallback) { _itemCallback->Resume(); }
+}
+
+- (void)_updateItemCallback:(CefRefPtr<CefDownloadItemCallback>)cb {
+  _itemCallback = cb;
+}
+
+- (void)_markPendingCancel {
+  _pendingCancel = YES;
+}
+
+- (BOOL)_consumePendingCancel {
+  if (_pendingCancel) { _pendingCancel = NO; return YES; }
+  return NO;
 }
 @end
 
@@ -43,6 +103,21 @@
 - (void)_installMessageHandlerShims;
 - (void)_ensureDevToolsDomainsEnabled;
 - (void)_installUserScript:(NSString*)source;
+- (void)_onBeforeDownloadId:(uint32_t)downloadId
+                        url:(nullable NSURL*)url
+                originalURL:(nullable NSURL*)originalURL
+              suggestedName:(nullable NSString*)suggestedName
+                   mimeType:(nullable NSString*)mimeType
+                 totalBytes:(long long)totalBytes
+                   callback:(CefRefPtr<CefBeforeDownloadCallback>)callback;
+- (void)_onDownloadUpdatedId:(uint32_t)downloadId
+                    received:(long long)received
+                       total:(long long)total
+                  inProgress:(BOOL)inProgress
+                    complete:(BOOL)complete
+                    canceled:(BOOL)canceled
+                    fullPath:(nullable NSString*)fullPath
+                    callback:(CefRefPtr<CefDownloadItemCallback>)callback;
 - (void)_reinstallUserScripts;
 @end
 
@@ -70,6 +145,11 @@ NSURL* nsurlFromCefString(const CefString& s) {
   if (s.empty()) return nil;
   return [NSURL URLWithString:
       [NSString stringWithUTF8String:s.ToString().c_str()]];
+}
+
+NSString* cefToNSString(const CefString& s) {
+  if (s.empty()) return nil;
+  return [NSString stringWithUTF8String:s.ToString().c_str()];
 }
 
 class _ChromiumClient;
@@ -135,7 +215,8 @@ class _ChromiumClient : public CefClient,
                    public CefLifeSpanHandler,
                    public CefLoadHandler,
                    public CefDisplayHandler,
-                   public CefRequestHandler {
+                   public CefRequestHandler,
+                   public CefDownloadHandler {
  public:
   _ChromiumClient() = default;
   explicit _ChromiumClient(ChromiumView* owner) : owner_(owner) {}
@@ -143,6 +224,62 @@ class _ChromiumClient : public CefClient,
   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
   CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
   CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
+  CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return this; }
+
+  // A download is starting. Snapshot the item's fields on the UI thread, then
+  // hop to the main queue to ask the ChromiumView's downloadDelegate where to
+  // write it; the delegate's completion calls callback->Continue with the path
+  // (or cancels). Returning true keeps CEF from doing its own default handling.
+  bool OnBeforeDownload(CefRefPtr<CefBrowser> /*browser*/,
+                        CefRefPtr<CefDownloadItem> item,
+                        const CefString& suggested_name,
+                        CefRefPtr<CefBeforeDownloadCallback> callback) override {
+    CEF_REQUIRE_UI_THREAD();
+    __weak ChromiumView* o = owner_;
+    uint32_t downloadId = item->GetId();
+    NSString* suggested = cefToNSString(suggested_name);
+    NSURL* url = nsurlFromCefString(item->GetURL());
+    NSURL* originalURL = nsurlFromCefString(item->GetOriginalUrl());
+    NSString* mime = cefToNSString(item->GetMimeType());
+    int64_t total = item->GetTotalBytes();
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [o _onBeforeDownloadId:downloadId
+                         url:url
+                 originalURL:originalURL
+               suggestedName:suggested
+                    mimeType:mime
+                  totalBytes:total
+                    callback:callback];
+    });
+    return true;
+  }
+
+  // Progress / completion tick. Snapshot on the UI thread; the main-queue hop
+  // updates the ChromiumDownload's KVO fields and stores the item callback so
+  // the handle's pause/resume/cancel can drive the download.
+  void OnDownloadUpdated(CefRefPtr<CefBrowser> /*browser*/,
+                         CefRefPtr<CefDownloadItem> item,
+                         CefRefPtr<CefDownloadItemCallback> callback) override {
+    CEF_REQUIRE_UI_THREAD();
+    __weak ChromiumView* o = owner_;
+    uint32_t downloadId = item->GetId();
+    int64_t received = item->GetReceivedBytes();
+    int64_t total = item->GetTotalBytes();
+    BOOL inProgress = item->IsInProgress() ? YES : NO;
+    BOOL complete = item->IsComplete() ? YES : NO;
+    BOOL canceled = (item->IsCanceled() || item->IsInterrupted()) ? YES : NO;
+    NSString* fullPath = cefToNSString(item->GetFullPath());
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [o _onDownloadUpdatedId:downloadId
+                     received:received
+                        total:total
+                   inProgress:inProgress
+                     complete:complete
+                     canceled:canceled
+                     fullPath:fullPath
+                     callback:callback];
+    });
+  }
 
   // cmd+click and middle-click skip OnBeforePopup and arrive here as
   // tab-disposition navigations. The opener relationship is NOT preserved
@@ -331,6 +468,10 @@ class _ChromiumClient : public CefClient,
   // navigations and are re-applied whenever the browser (re)attaches.
   NSMutableArray<NSString*>* _documentStartScripts;
   NSMutableArray<NSString*>* _documentStartScriptIdentifiers;
+  // In-flight downloads keyed by CEF download id, so OnDownloadUpdated can find
+  // the ChromiumDownload handle created in OnBeforeDownload. Dropped when the
+  // download finishes/cancels (the delegate retains its own reference).
+  NSMutableDictionary<NSNumber*, ChromiumDownload*>* _downloads;
 }
 
 @synthesize URL = _URL;
@@ -345,6 +486,7 @@ class _ChromiumClient : public CefClient,
     _rawResultCallbacks = [NSMutableDictionary new];
     _documentStartScripts = [NSMutableArray new];
     _documentStartScriptIdentifiers = [NSMutableArray new];
+    _downloads = [NSMutableDictionary new];
     self.wantsLayer = YES;
   }
   return self;
@@ -367,6 +509,71 @@ class _ChromiumClient : public CefClient,
 
 - (CefClient*)_internalCefClient {
   return _client.get();
+}
+
+- (void)_onBeforeDownloadId:(uint32_t)downloadId
+                        url:(NSURL*)url
+                originalURL:(NSURL*)originalURL
+              suggestedName:(NSString*)suggestedName
+                   mimeType:(NSString*)mimeType
+                 totalBytes:(long long)totalBytes
+                   callback:(CefRefPtr<CefBeforeDownloadCallback>)callback {
+  ChromiumDownload* dl = [[ChromiumDownload alloc] initWithDownloadId:downloadId];
+  dl.url = url;
+  dl.originalURL = originalURL;
+  dl.suggestedFilename = suggestedName;
+  dl.mimeType = mimeType;
+  dl.totalBytes = totalBytes;
+  dl.inProgress = YES;
+  _downloads[@(downloadId)] = dl;
+
+  id<ChromiumDownloadDelegate> d = self.downloadDelegate;
+  SEL destSel = @selector(webView:decideDestinationForDownload:suggestedFilename:completionHandler:);
+  if (![d respondsToSelector:destSel]) {
+    // No delegate: cancel by never continuing; the next update tick cancels it.
+    [dl _markPendingCancel];
+    return;
+  }
+  [d webView:self
+      decideDestinationForDownload:dl
+                 suggestedFilename:suggestedName
+                 completionHandler:^(NSURL* _Nullable destination) {
+    if (destination) {
+      dl.fileURL = destination;
+      callback->Continue(CefString(destination.path.UTF8String),
+                         /*show_dialog=*/false);
+    } else {
+      [dl _markPendingCancel];
+    }
+  }];
+}
+
+- (void)_onDownloadUpdatedId:(uint32_t)downloadId
+                    received:(long long)received
+                       total:(long long)total
+                  inProgress:(BOOL)inProgress
+                    complete:(BOOL)complete
+                    canceled:(BOOL)canceled
+                    fullPath:(NSString*)fullPath
+                    callback:(CefRefPtr<CefDownloadItemCallback>)callback {
+  ChromiumDownload* dl = _downloads[@(downloadId)];
+  if (!dl) { return; }
+  [dl _updateItemCallback:callback];
+  if ([dl _consumePendingCancel]) {
+    callback->Cancel();
+    [_downloads removeObjectForKey:@(downloadId)];
+    return;
+  }
+  dl.receivedBytes = received;
+  dl.totalBytes = total;
+  if (fullPath.length > 0) { dl.fileURL = [NSURL fileURLWithPath:fullPath]; }
+  dl.inProgress = inProgress;
+  dl.complete = complete;
+  dl.canceled = canceled;
+  if (complete || canceled) {
+    // The delegate retains the handle it received; drop our internal reference.
+    [_downloads removeObjectForKey:@(downloadId)];
+  }
 }
 
 - (ChromiumView*)_requestNewTabFor:(NSURL*)url
