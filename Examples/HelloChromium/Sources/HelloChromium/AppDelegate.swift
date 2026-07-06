@@ -1,4 +1,5 @@
 import AppKit
+import ChromiumKit
 import Foundation
 import SwiftData
 import SwiftUI
@@ -33,6 +34,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         runtime.session = session
         configureBridgeProofIfRequested(session)
         configureDocumentStartProofIfRequested(session)
+        configureCookieProofIfRequested()
         runtime.reconcileLiveTabs() // start reacting to tab deletions
 
         window = NSWindow(
@@ -90,6 +92,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if let tab = session.orderedTabs.first {
             tab.url = URL(fileURLWithPath: fixture)
+        }
+    }
+
+    /// Cookie-store round-trip proof (drives CookieStoreUITests). When
+    /// `HELLOCHROMIUM_COOKIE_PROOF` is set, exercise the global cookie store —
+    /// delete all, set a cookie, then read it back — and stamp the read-back
+    /// value into the window title as `cookie:<value>`. `cookie:hello42` proves
+    /// set + get round-trip through CEF's `CefCookieManager`; `cookie:MISSING`
+    /// (not found) or `cookie:SETFAILED` (rejected) would prove it did not.
+    private func configureCookieProofIfRequested() {
+        guard ProcessInfo.processInfo.environment["HELLOCHROMIUM_COOKIE_PROOF"] != nil
+        else { return }
+        let store = ChromiumCookieStore.global()
+        store.deleteAllCookies { _ in
+            let cookie = ChromiumCookie(name: "ckproof", value: "hello42")
+            cookie.domain = "example.com"
+            cookie.path = "/"
+            store.setCookie(cookie, for: URL(string: "https://example.com/")!) { [weak self] success in
+                guard success else { self?.window.title = "cookie:SETFAILED"; return }
+                store.getAllCookies { cookies in
+                    let match = cookies.first { $0.name == "ckproof" }
+                    self?.window.title = "cookie:\(match?.value ?? "MISSING")"
+                }
+            }
         }
     }
 

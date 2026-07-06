@@ -209,4 +209,61 @@ NS_SWIFT_NAME(ChromiumWebView)
 
 @end
 
+#pragma mark - Cookies
+
+/// A single HTTP cookie — the subset of `NSHTTPCookie` / `WKHTTPCookieStore`
+/// fields CEF's cookie store round-trips. Used with `ChromiumCookieStore`.
+NS_SWIFT_NAME(ChromiumCookie)
+@interface ChromiumCookie : NSObject
+@property (nonatomic, copy) NSString* name;
+@property (nonatomic, copy) NSString* value;
+/// If empty/nil a *host* cookie is created (visible only to the exact host).
+/// A leading "." makes it a *domain* cookie visible to sub-domains.
+@property (nonatomic, copy, nullable) NSString* domain;
+/// Path scope. Defaults to "/" when nil.
+@property (nonatomic, copy, nullable) NSString* path;
+/// Only sent over HTTPS when YES.
+@property (nonatomic, assign) BOOL secure;
+/// Hidden from `document.cookie` (JS) when YES.
+@property (nonatomic, assign) BOOL httpOnly;
+/// Expiry date. nil = a session cookie (dropped when the store is discarded).
+@property (nonatomic, copy, nullable) NSDate* expires;
+- (instancetype)initWithName:(NSString*)name value:(NSString*)value
+    NS_DESIGNATED_INITIALIZER;
+- (instancetype)init NS_UNAVAILABLE;
+@end
+
+/// Process-global cookie store backed by CEF's global `CefCookieManager`
+/// (`CefRequestContext::GetGlobalContext()->GetDefaultCookieManager()`) — the
+/// analogue of `WKWebsiteDataStore.default().httpCookieStore`. ChromiumKit uses
+/// a single global request context, so there is ONE shared store per process
+/// and cookies set here are visible to every `ChromiumWebView`.
+///
+/// All completion blocks are invoked on the MAIN THREAD. Requires CEF to be
+/// initialized — call from inside/after `ChromiumApplication.run` (e.g. its
+/// setup block), on the main thread.
+NS_SWIFT_NAME(ChromiumCookieStore)
+@interface ChromiumCookieStore : NSObject
++ (ChromiumCookieStore*)globalStore NS_SWIFT_NAME(global());
+- (instancetype)init NS_UNAVAILABLE;
+
+/// Set `cookie` for `url`. `completion` (optional) reports whether CEF accepted
+/// it — it rejects malformed names/values/domains or an invalid URL.
+- (void)setCookie:(ChromiumCookie*)cookie
+           forURL:(NSURL*)url
+       completion:(void (^_Nullable)(BOOL success))completion
+    NS_SWIFT_NAME(setCookie(_:for:completion:));
+
+/// Enumerate every cookie in the store; `completion` receives them (ordered by
+/// longest path, then earliest creation) on the main thread.
+- (void)getAllCookies:(void (^)(NSArray<ChromiumCookie*>* cookies))completion
+    NS_SWIFT_NAME(getAllCookies(_:));
+
+/// Delete every cookie for all hosts and domains — the cookie half of
+/// `WKWebsiteDataStore.removeAllData()`. `completion` (optional) receives the
+/// number deleted.
+- (void)deleteAllCookies:(void (^_Nullable)(NSInteger deletedCount))completion
+    NS_SWIFT_NAME(deleteAllCookies(_:));
+@end
+
 NS_ASSUME_NONNULL_END

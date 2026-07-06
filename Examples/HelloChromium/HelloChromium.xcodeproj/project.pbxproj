@@ -34,6 +34,7 @@
 		EDC3145BE1110805F3FFC6A9 /* CloseTabUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 66B5F79F7A11BA0D22EEBACE /* CloseTabUITests.swift */; };
 		F0B1BF62BA2DC49E7DF7F42E /* ChromiumKit in Frameworks */ = {isa = PBXBuildFile; productRef = BE93FC28F7EE9EA0E74717CD /* ChromiumKit */; };
 		FD51A6A8C643F14C62410446 /* TabRuntimeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01D43F9C9B64F414197C73A9 /* TabRuntimeTests.swift */; };
+		FD69554D35D73249C94C19AC /* CookieStoreUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 125425B761D1EC0BFFB76006 /* CookieStoreUITests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -65,6 +66,7 @@
 		01D43F9C9B64F414197C73A9 /* TabRuntimeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TabRuntimeTests.swift; sourceTree = "<group>"; };
 		025FF931F7B55DC5EA53CB54 /* FaviconView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaviconView.swift; sourceTree = "<group>"; };
 		0325FC5EFECDA6F6C44308E8 /* SessionPersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPersistenceTests.swift; sourceTree = "<group>"; };
+		125425B761D1EC0BFFB76006 /* CookieStoreUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CookieStoreUITests.swift; sourceTree = "<group>"; };
 		1A7145DFDB39E43A7CC2BAAE /* ChromiumKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = ChromiumKit; path = ../..; sourceTree = SOURCE_ROOT; };
 		1C5EC6E298E46D61258BD5DF /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		1CE635CA87C92FD81B516B1B /* bridge.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = bridge.html; sourceTree = "<group>"; };
@@ -208,6 +210,7 @@
 				3769D4A4BBF4081DEEB360F8 /* AddressBarUITests.swift */,
 				E159EE7E3B760C67672EB827 /* BridgeUITests.swift */,
 				66B5F79F7A11BA0D22EEBACE /* CloseTabUITests.swift */,
+				125425B761D1EC0BFFB76006 /* CookieStoreUITests.swift */,
 				A90A7055F48C1AA416337437 /* DocumentStartUITests.swift */,
 				6BECFC2C56E8CF9CFF4CFCBD /* HibernateTabUITests.swift */,
 				8FB93733505C2EF98CFD7D92 /* SessionRestoreUITests.swift */,
@@ -412,6 +415,7 @@
 				E06B5C396C4B5412F93B0002 /* AddressBarUITests.swift in Sources */,
 				6A1FE2EBC44D924A6D6744D9 /* BridgeUITests.swift in Sources */,
 				EDC3145BE1110805F3FFC6A9 /* CloseTabUITests.swift in Sources */,
+				FD69554D35D73249C94C19AC /* CookieStoreUITests.swift in Sources */,
 				5F39B64D954472C0E5CA36AA /* DocumentStartUITests.swift in Sources */,
 				A81D640762B70FB9A1EF66F5 /* HibernateTabUITests.swift in Sources */,
 				14263BBA163458010FFFAA7B /* SessionRestoreUITests.swift in Sources */,
