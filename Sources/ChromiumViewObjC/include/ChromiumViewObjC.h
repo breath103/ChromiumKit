@@ -181,6 +181,25 @@ NS_SWIFT_NAME(ChromiumWebView)
 - (void)removeMessageHandlerName:(NSString*)name
     NS_SWIFT_NAME(removeMessageHandler(name:));
 
+#pragma mark - Document-start user scripts
+
+/// Inject `source` at the start of every document, before the page's own
+/// scripts run — the CEF equivalent of a `WKUserScript` with
+/// `injectionTime = .atDocumentStart` (and `forMainFrameOnly = NO`: it runs in
+/// the main frame and every subframe). It applies to all FUTURE document loads
+/// (surviving navigation), in the order the scripts were added, and — matching
+/// `WKUserScript` — does NOT re-run on the document that is already loaded.
+/// Safe to call before the browser is created: the registration is applied once
+/// CEF attaches and re-applied if the browser reattaches.
+- (void)addUserScriptAtDocumentStart:(NSString*)source
+    NS_SWIFT_NAME(addUserScript(atDocumentStart:));
+
+/// Remove every document-start user script registered via
+/// `addUserScript(atDocumentStart:)` so future documents no longer receive
+/// them. Scripts that already ran in the current document cannot be un-run —
+/// the same semantics as `WKUserContentController.removeAllUserScripts()`.
+- (void)removeAllUserScripts NS_SWIFT_NAME(removeAllUserScripts());
+
 #pragma mark - DevTools
 
 /// Open / close Chromium DevTools for this browser.

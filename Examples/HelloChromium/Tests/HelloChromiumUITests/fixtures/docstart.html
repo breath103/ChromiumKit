@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>docstart</title>
+</head>
+<body>
+  <p>document-start injection fixture</p>
+  <script>
+    // Runs at HTML-parse time — this is AFTER any WKUserScript-style
+    // `.atDocumentStart` user script. Read the global the document-start user
+    // script is expected to have set, then post it back through the bridge so
+    // the native side can assert the injection happened before page scripts.
+    // If the user script did NOT run first, the global is undefined -> "MISSING".
+    var value = (typeof window.__docStartValue === 'string') ? window.__docStartValue : 'MISSING';
+    window.webkit.messageHandlers.bridgeTest.postMessage(value);
+  </script>
+</body>
+</html>

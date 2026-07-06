@@ -31,6 +31,13 @@ final class TabRuntime: NSObject {
     /// this; normal runs leave it nil so no handler is installed.
     @ObservationIgnored var onBridgeMessage: ((Any?) -> Void)?
 
+    /// Optional document-start user script. When set, every live web view gets
+    /// this JS injected at `.atDocumentStart` (before the page's own scripts run,
+    /// on every load) via `addUserScript(atDocumentStart:)`. The document-start UI
+    /// test sets it to prove the injection lands before page scripts; normal runs
+    /// leave it nil.
+    @ObservationIgnored var documentStartScript: String?
+
     /// The live web view for a record, or nil if the tab is hibernated. Pure
     /// lookup — safe to call from a SwiftUI view body.
     func liveWebView(for record: TabRecord) -> ChromiumWebView? {
@@ -105,6 +112,9 @@ final class TabRuntime: NSObject {
             // Round-trip proof: JS `window.webkit.messageHandlers.bridgeTest
             // .postMessage(body)` → this closure, on the main thread.
             webView.addMessageHandler(name: "bridgeTest") { body in onBridgeMessage(body) }
+        }
+        if let documentStartScript {
+            webView.addUserScript(atDocumentStart: documentStartScript)
         }
         live[record.id] = LiveTab(webView: webView, record: record)
         return webView

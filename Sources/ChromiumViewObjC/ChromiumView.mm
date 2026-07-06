@@ -41,6 +41,9 @@
                    result:(NSData*)data;
 - (void)_onDevToolsEventMethod:(NSString*)method params:(NSData*)params;
 - (void)_installMessageHandlerShims;
+- (void)_ensureDevToolsDomainsEnabled;
+- (void)_installUserScript:(NSString*)source;
+- (void)_reinstallUserScripts;
 @end
 
 namespace {
@@ -318,6 +321,16 @@ class _ChromiumClient : public CefClient,
   // navigations and are (re)applied to the browser whenever it (re)attaches.
   NSMutableDictionary<NSString*, void(^)(id _Nullable)>* _messageHandlers;
   BOOL _runtimeDomainsEnabled;
+  // Raw DevTools result callbacks keyed by message id — like _evalCallbacks
+  // but delivering the whole `result` object (used to capture the identifier
+  // that Page.addScriptToEvaluateOnNewDocument returns).
+  NSMutableDictionary<NSNumber*, void(^)(NSDictionary* _Nullable)>* _rawResultCallbacks;
+  // Document-start user scripts (WKUserScript @ .atDocumentStart equivalent):
+  // the JS sources in add-order, plus the DevTools identifiers CEF assigned to
+  // them (so removeAllUserScripts can tear them down). Sources survive
+  // navigations and are re-applied whenever the browser (re)attaches.
+  NSMutableArray<NSString*>* _documentStartScripts;
+  NSMutableArray<NSString*>* _documentStartScriptIdentifiers;
 }
 
 @synthesize URL = _URL;
@@ -329,6 +342,9 @@ class _ChromiumClient : public CefClient,
     _nextEvalId = 1;
     _evalCallbacks = [NSMutableDictionary new];
     _messageHandlers = [NSMutableDictionary new];
+    _rawResultCallbacks = [NSMutableDictionary new];
+    _documentStartScripts = [NSMutableArray new];
+    _documentStartScriptIdentifiers = [NSMutableArray new];
     self.wantsLayer = YES;
   }
   return self;
@@ -431,6 +447,7 @@ class _ChromiumClient : public CefClient,
   // browser existed has to wait until now.
   _runtimeDomainsEnabled = NO;
   [self _installMessageHandlerShims];
+  [self _reinstallUserScripts];
 }
 
 - (void)resizeSubviewsWithOldSize:(NSSize)oldSize {
@@ -527,6 +544,13 @@ class _ChromiumClient : public CefClient,
 }
 
 - (void)_onDevToolsResult:(int)messageId success:(BOOL)success result:(NSData*)data {
+  if (void (^rawCb)(NSDictionary* _Nullable) = _rawResultCallbacks[@(messageId)]) {
+    [_rawResultCallbacks removeObjectForKey:@(messageId)];
+    id obj = success ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    NSDictionary* result = [obj isKindOfClass:[NSDictionary class]] ? ((NSDictionary*)obj)[@"result"] : nil;
+    rawCb([result isKindOfClass:[NSDictionary class]] ? result : nil);
+    return;
+  }
   void (^cb)(id, NSError*) = _evalCallbacks[@(messageId)];
   if (!cb) return;
   [_evalCallbacks removeObjectForKey:@(messageId)];
@@ -603,9 +627,21 @@ static NSString* messageHandlerShimJS(NSString* name) {
 }
 
 - (void)_sendDevToolsMethod:(NSString*)method params:(nullable NSDictionary*)params {
+  [self _sendDevToolsMethod:method params:params resultHandler:nil];
+}
+
+// Send a DevTools Protocol command. When `resultHandler` is non-nil it is
+// invoked (main thread) with the command's `result` object once CEF replies,
+// so callers can read values the command returns (e.g. the identifier from
+// Page.addScriptToEvaluateOnNewDocument).
+- (void)_sendDevToolsMethod:(NSString*)method
+                     params:(nullable NSDictionary*)params
+              resultHandler:(nullable void (^)(NSDictionary* _Nullable result))resultHandler {
   auto b = [self _browser];
   if (!b) return;
-  NSMutableDictionary* req = [@{ @"id": @(++_nextEvalId), @"method": method } mutableCopy];
+  int msgId = ++_nextEvalId;
+  if (resultHandler) _rawResultCallbacks[@(msgId)] = [resultHandler copy];
+  NSMutableDictionary* req = [@{ @"id": @(msgId), @"method": method } mutableCopy];
   if (params) req[@"params"] = params;
   NSData* json = [NSJSONSerialization dataWithJSONObject:req options:0 error:nil];
   b->GetHost()->SendDevToolsMessage(json.bytes, json.length);
@@ -630,6 +666,16 @@ static NSString* messageHandlerShimJS(NSString* name) {
   [self _sendDevToolsMethod:@"Runtime.evaluate" params:@{ @"expression": del }];
 }
 
+// Enable the Runtime/Page DevTools domains once per browser attach. Runtime.enable
+// delivers bindingCalled events (the JS→native bridge); Page.enable is required
+// for addScriptToEvaluateOnNewDocument (message-handler shims + user scripts).
+- (void)_ensureDevToolsDomainsEnabled {
+  if (_runtimeDomainsEnabled) return;
+  [self _sendDevToolsMethod:@"Runtime.enable" params:nil];
+  [self _sendDevToolsMethod:@"Page.enable" params:nil];
+  _runtimeDomainsEnabled = YES;
+}
+
 // Ensure the Runtime/Page domains are enabled, then (re)install every currently
 // registered handler. Called when the browser (re)attaches.
 - (void)_installMessageHandlerShims {
@@ -641,12 +687,7 @@ static NSString* messageHandlerShimJS(NSString* name) {
 
 - (void)_installMessageHandler:(NSString*)name {
   if (![self _browser]) return;  // deferred; _browserDidCreate re-applies
-  if (!_runtimeDomainsEnabled) {
-    // Runtime.enable → bindingCalled events; Page.enable → addScriptToEvaluateOnNewDocument.
-    [self _sendDevToolsMethod:@"Runtime.enable" params:nil];
-    [self _sendDevToolsMethod:@"Page.enable" params:nil];
-    _runtimeDomainsEnabled = YES;
-  }
+  [self _ensureDevToolsDomainsEnabled];
   NSString* binding = [kBindingPrefix stringByAppendingString:name];
   // Raw binding: JS calling window.<binding>(str) fires Runtime.bindingCalled.
   [self _sendDevToolsMethod:@"Runtime.addBinding" params:@{ @"name": binding }];
@@ -656,6 +697,54 @@ static NSString* messageHandlerShimJS(NSString* name) {
                      params:@{ @"source": shim }];
   // The already-loaded document, so a handler added after load works immediately.
   [self _sendDevToolsMethod:@"Runtime.evaluate" params:@{ @"expression": shim }];
+}
+
+#pragma mark - Document-start user scripts
+
+- (void)addUserScriptAtDocumentStart:(NSString*)source {
+  if (source.length == 0) return;
+  [_documentStartScripts addObject:[source copy]];
+  [self _installUserScript:source];
+}
+
+- (void)removeAllUserScripts {
+  [_documentStartScripts removeAllObjects];
+  if ([self _browser]) {
+    for (NSString* identifier in _documentStartScriptIdentifiers) {
+      [self _sendDevToolsMethod:@"Page.removeScriptToEvaluateOnNewDocument"
+                         params:@{ @"identifier": identifier }];
+    }
+  }
+  [_documentStartScriptIdentifiers removeAllObjects];
+}
+
+// Register one document-start script with CEF for all future documents. Unlike
+// the message-handler shim we do NOT Runtime.evaluate it against the current
+// document — WKUserScript at .atDocumentStart only affects subsequent loads.
+- (void)_installUserScript:(NSString*)source {
+  if (![self _browser]) return;  // deferred; _reinstallUserScripts re-applies
+  [self _ensureDevToolsDomainsEnabled];
+  __weak ChromiumView* weakSelf = self;
+  [self _sendDevToolsMethod:@"Page.addScriptToEvaluateOnNewDocument"
+                     params:@{ @"source": source }
+              resultHandler:^(NSDictionary* _Nullable result) {
+    ChromiumView* strongSelf = weakSelf;
+    if (!strongSelf) return;
+    NSString* identifier = result[@"identifier"];
+    if ([identifier isKindOfClass:[NSString class]]) {
+      [strongSelf->_documentStartScriptIdentifiers addObject:identifier];
+    }
+  }];
+}
+
+// Re-apply every document-start script when the browser (re)attaches. The old
+// browser's identifiers are stale, so drop them and re-register from source.
+- (void)_reinstallUserScripts {
+  if (![self _browser] || _documentStartScripts.count == 0) return;
+  [_documentStartScriptIdentifiers removeAllObjects];
+  for (NSString* source in _documentStartScripts) {
+    [self _installUserScript:source];
+  }
 }
 
 - (void)_onDevToolsEventMethod:(NSString*)method params:(NSData*)params {

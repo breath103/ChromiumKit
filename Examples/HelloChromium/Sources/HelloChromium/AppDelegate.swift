@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         runtime.context = container.mainContext
         runtime.session = session
         configureBridgeProofIfRequested(session)
+        configureDocumentStartProofIfRequested(session)
         runtime.reconcileLiveTabs() // start reacting to tab deletions
 
         window = NSWindow(
@@ -68,6 +69,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.window.title = "bridge:\(json)"
         }
         // Point the seeded tab at the fixture so the page posts on load.
+        if let tab = session.orderedTabs.first {
+            tab.url = URL(fileURLWithPath: fixture)
+        }
+    }
+
+    /// Document-start user-script round-trip proof (drives DocumentStartUITests).
+    /// When `HELLOCHROMIUM_DOCSTART_FIXTURE` points at an HTML file, inject a
+    /// document-start script that sets `window.__docStartValue = 'ok'` and wire
+    /// `bridgeTest` to stamp the value the page reads back into the window title
+    /// as `docstart:<value>`. The fixture's parse-time inline script reads the
+    /// global and posts it, so `docstart:ok` proves the user script ran BEFORE
+    /// page scripts; `docstart:MISSING` would mean it did not.
+    private func configureDocumentStartProofIfRequested(_ session: Session) {
+        guard let fixture = ProcessInfo.processInfo.environment["HELLOCHROMIUM_DOCSTART_FIXTURE"]
+        else { return }
+        runtime.documentStartScript = "window.__docStartValue = 'ok';"
+        runtime.onBridgeMessage = { [weak self] body in
+            self?.window.title = "docstart:\(body ?? "nil")"
+        }
         if let tab = session.orderedTabs.first {
             tab.url = URL(fileURLWithPath: fixture)
         }
