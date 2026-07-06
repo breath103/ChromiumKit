@@ -29,6 +29,7 @@
 
 - (void)_onLoadStartURL:(nullable NSURL*)url;
 - (void)_onLoadEndURL:(nullable NSURL*)url statusCode:(int)code;
+- (void)_browserDidCreate;
 - (CefClient*)_internalCefClient;
 - (nullable ChromiumView*)_requestNewTabFor:(nullable NSURL*)url
                             disposition:(CEFTabDisposition)disposition
@@ -158,6 +159,13 @@ class _ChromiumClient : public CefClient,
     devtools_ = new _CEFDevToolsObserver();
     devtools_->SetOwner(owner_);
     devtools_registration_ = b->GetHost()->AddDevToolsMessageObserver(devtools_.get());
+    // CEF adds its browser NSView here, asynchronously — typically AFTER our last
+    // layout pass — at the size passed to CreateBrowser. If the view grew in the
+    // meantime, the browser is left pinned at its creation size in the
+    // bottom-left corner. Re-sync the child to our current bounds now that it
+    // exists. (Hop to the main thread to touch AppKit safely.)
+    __weak ChromiumView* o = owner_;
+    dispatch_async(dispatch_get_main_queue(), ^{ [o _browserDidCreate]; });
   }
 
   bool OnBeforePopup(
@@ -338,20 +346,80 @@ class _ChromiumClient : public CefClient,
                 disposition:disposition];
 }
 
+// Create the CefBrowser once we're in a window AND have a non-zero size. CEF
+// sizes the browser's NSView to the CefRect passed here and never tracks our
+// bounds again, so the size at creation matters: embedded in SwiftUI
+// (NSViewRepresentable), `viewDidMoveToWindow` fires while our bounds are still
+// zero — creating the browser then yields a 0x0 CEF view that loads the page but
+// never paints. So we defer creation until the first layout pass with a real
+// size (see `resizeSubviewsWithOldSize:`). An AppKit host that hands us a sized
+// frame up front creates immediately, straight from `viewDidMoveToWindow`.
+- (void)_createBrowserIfReady {
+  if (_browserCreated || !self.window) return;
+  NSRect b = self.bounds;
+  if (b.size.width < 1 || b.size.height < 1) return;
+  _browserCreated = YES;
+  _client = new _ChromiumClient(self);
+  CefWindowInfo wi;
+  wi.SetAsChild((__bridge void*)self,
+                CefRect(0, 0, (int)b.size.width, (int)b.size.height));
+  CefBrowserSettings bs;
+  NSString* urlString = _URL.absoluteString ?: @"about:blank";
+  CefBrowserHost::CreateBrowser(wi, _client.get(),
+                                [urlString UTF8String], bs, nullptr, nullptr);
+}
+
 - (void)viewDidMoveToWindow {
   [super viewDidMoveToWindow];
-  if (self.window && !_browserCreated) {
-    _browserCreated = YES;
-    _client = new _ChromiumClient(self);
-    NSRect b = self.bounds;
-    CefWindowInfo wi;
-    wi.SetAsChild((__bridge void*)self,
-                  CefRect(0, 0, (int)b.size.width, (int)b.size.height));
-    CefBrowserSettings bs;
-    NSString* urlString = _URL.absoluteString ?: @"about:blank";
-    CefBrowserHost::CreateBrowser(wi, _client.get(),
-                                  [urlString UTF8String], bs, nullptr, nullptr);
+  [self _createBrowserIfReady];
+}
+
+// CEF adds its browser NSView as a child of `self`, sized to our bounds at
+// creation time and WITHOUT an autoresizing mask, so AppKit won't grow it for
+// us. A view created small — e.g. an NSViewRepresentable laid out at zero/100pt
+// and then grown by SwiftUI — would leave the browser pinned tiny in the
+// bottom-left corner. We must resize the child ourselves on every layout pass.
+//
+// Crucially, SwiftUI hosts us in a layer-backed tree and resizes via `layout` /
+// `setFrameSize:`, NOT the classic `resizeSubviewsWithOldSize:` autoresizing
+// path — so hooking only the latter (as a plain AppKit host would) never fires
+// under SwiftUI and the browser stays tiny. Hook all three; each forwards to
+// `_syncBrowserLayout`, which also fires the deferred browser creation once we
+// finally have a real size.
+- (void)_syncBrowserLayout {
+  [self _createBrowserIfReady];
+  NSRect b = self.bounds;
+  if (auto browser = [self _browser]) {
+    // Resize CEF's browser NSView to fill us. GetWindowHandle() is the view CEF
+    // created under `SetAsChild`; it carries no autoresizing mask, so we drive
+    // its frame ourselves, then tell CEF to re-layout + repaint at the new size.
+    if (NSView* cefView = (__bridge NSView*)browser->GetHost()->GetWindowHandle()) {
+      cefView.frame = b;
+    }
+    browser->GetHost()->WasResized();
   }
+}
+
+// CEF adds its child view asynchronously (OnAfterCreated), often after our last
+// layout pass, at the CreateBrowser size — so sync it to our current bounds the
+// moment it exists, or it stays pinned tiny in the bottom-left.
+- (void)_browserDidCreate {
+  [self _syncBrowserLayout];
+}
+
+- (void)resizeSubviewsWithOldSize:(NSSize)oldSize {
+  [super resizeSubviewsWithOldSize:oldSize];
+  [self _syncBrowserLayout];
+}
+
+- (void)setFrameSize:(NSSize)newSize {
+  [super setFrameSize:newSize];
+  [self _syncBrowserLayout];
+}
+
+- (void)layout {
+  [super layout];
+  [self _syncBrowserLayout];
 }
 
 #pragma mark - Navigation
