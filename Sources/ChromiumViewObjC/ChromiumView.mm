@@ -39,6 +39,8 @@
 - (void)_onDevToolsResult:(int)messageId
                   success:(BOOL)success
                    result:(NSData*)data;
+- (void)_onDevToolsEventMethod:(NSString*)method params:(NSData*)params;
+- (void)_installMessageHandlerShims;
 @end
 
 namespace {
@@ -106,6 +108,19 @@ class _CEFDevToolsObserver : public CefDevToolsMessageObserver {
     __weak ChromiumView* owner = owner_;
     dispatch_async(dispatch_get_main_queue(), ^{
       [owner _onDevToolsResult:message_id success:success result:data];
+    });
+  }
+  // DevTools protocol events. `Runtime.bindingCalled` is how a JS→native
+  // message-handler binding delivers its payload; forward every event to the
+  // view, which filters for the ones it cares about.
+  void OnDevToolsEvent(CefRefPtr<CefBrowser> browser, const CefString& method,
+                       const void* params, size_t params_size) override {
+    NSString* m = [NSString stringWithUTF8String:method.ToString().c_str()];
+    NSData* data = params_size ? [NSData dataWithBytes:params length:params_size]
+                               : [NSData data];
+    __weak ChromiumView* owner = owner_;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      [owner _onDevToolsEventMethod:m params:data];
     });
   }
  private:
@@ -298,6 +313,11 @@ class _ChromiumClient : public CefClient,
   BOOL _browserCreated;
   int _nextEvalId;
   NSMutableDictionary<NSNumber*, void(^)(id _Nullable, NSError* _Nullable)>* _evalCallbacks;
+  // JS→native message handlers, keyed by the public handler name (the `<name>`
+  // in `window.webkit.messageHandlers.<name>`). Registrations survive
+  // navigations and are (re)applied to the browser whenever it (re)attaches.
+  NSMutableDictionary<NSString*, void(^)(id _Nullable)>* _messageHandlers;
+  BOOL _runtimeDomainsEnabled;
 }
 
 @synthesize URL = _URL;
@@ -308,6 +328,7 @@ class _ChromiumClient : public CefClient,
     _URL = [url copy];
     _nextEvalId = 1;
     _evalCallbacks = [NSMutableDictionary new];
+    _messageHandlers = [NSMutableDictionary new];
     self.wantsLayer = YES;
   }
   return self;
@@ -405,6 +426,11 @@ class _ChromiumClient : public CefClient,
 // moment it exists, or it stays pinned tiny in the bottom-left.
 - (void)_browserDidCreate {
   [self _syncBrowserLayout];
+  // The devtools agent attaches lazily on the first message; enabling the
+  // Runtime/Page domains + (re)installing any handlers registered before the
+  // browser existed has to wait until now.
+  _runtimeDomainsEnabled = NO;
+  [self _installMessageHandlerShims];
 }
 
 - (void)resizeSubviewsWithOldSize:(NSSize)oldSize {
@@ -534,6 +560,126 @@ class _ChromiumClient : public CefClient,
     return;
   }
   cb(value, nil);
+}
+
+#pragma mark - JS → native message handlers
+
+// Prefix for the raw `Runtime.addBinding` function names installed on `window`.
+// The shim calls `window.<prefix><name>(json)`; the public `<name>` never
+// collides with page globals because the actual binding lives under this
+// namespaced key.
+static NSString* const kBindingPrefix = @"__chromiumkit_msg_";
+
+// JSON-encode a string into a JS string literal (quotes + escaping) so it can be
+// interpolated safely into generated source.
+static NSString* jsStringLiteral(NSString* s) {
+  NSData* d = [NSJSONSerialization dataWithJSONObject:@[s ?: @""]
+                                             options:0 error:nil];
+  NSString* arr = [[NSString alloc] initWithData:d encoding:NSUTF8StringEncoding];
+  // arr == ["..."]; strip the surrounding brackets to get the bare literal.
+  return [arr substringWithRange:NSMakeRange(1, arr.length - 2)];
+}
+
+// Build the JS that (re)installs `window.webkit.messageHandlers.<name>` as a
+// thin wrapper over the raw binding. Idempotent — safe to run on every document
+// and after `Runtime.addBinding`. Mirrors WKWebView's
+// `window.webkit.messageHandlers.<name>.postMessage(body)` shape exactly.
+static NSString* messageHandlerShimJS(NSString* name) {
+  NSString* binding = [kBindingPrefix stringByAppendingString:name];
+  // The raw binding takes a single string arg, so JSON-serialize the body (as
+  // WKWebView consumers already do: postMessage(JSON.stringify(...))). A body
+  // that's already a string is passed through as-is so double-encoding is
+  // avoided for the common `postMessage(JSON.stringify(x))` call site.
+  return [NSString stringWithFormat:
+      @"(function(){"
+      @"  var w = (window.webkit = window.webkit || {});"
+      @"  var h = (w.messageHandlers = w.messageHandlers || {});"
+      @"  h[%@] = { postMessage: function(body){"
+      @"    var s = (typeof body === 'string') ? body : JSON.stringify(body);"
+      @"    return window[%@](s);"
+      @"  }};"
+      @"})();",
+      jsStringLiteral(name), jsStringLiteral(binding)];
+}
+
+- (void)_sendDevToolsMethod:(NSString*)method params:(nullable NSDictionary*)params {
+  auto b = [self _browser];
+  if (!b) return;
+  NSMutableDictionary* req = [@{ @"id": @(++_nextEvalId), @"method": method } mutableCopy];
+  if (params) req[@"params"] = params;
+  NSData* json = [NSJSONSerialization dataWithJSONObject:req options:0 error:nil];
+  b->GetHost()->SendDevToolsMessage(json.bytes, json.length);
+}
+
+- (void)addMessageHandlerName:(NSString*)name handler:(void (^)(id))handler {
+  _messageHandlers[name] = [handler copy];
+  [self _installMessageHandler:name];
+}
+
+- (void)removeMessageHandlerName:(NSString*)name {
+  [_messageHandlers removeObjectForKey:name];
+  if (![self _browser]) return;
+  [self _sendDevToolsMethod:@"Runtime.removeBinding"
+                     params:@{ @"name": [kBindingPrefix stringByAppendingString:name] }];
+  // Tear down the shim for future documents. (Existing documents keep the
+  // now-inert wrapper until they navigate — harmless: the removed binding
+  // throws, and callers have deregistered.)
+  NSString* del = [NSString stringWithFormat:
+      @"(function(){try{delete window.webkit.messageHandlers[%@];}catch(e){}})();",
+      jsStringLiteral(name)];
+  [self _sendDevToolsMethod:@"Runtime.evaluate" params:@{ @"expression": del }];
+}
+
+// Ensure the Runtime/Page domains are enabled, then (re)install every currently
+// registered handler. Called when the browser (re)attaches.
+- (void)_installMessageHandlerShims {
+  if (![self _browser] || _messageHandlers.count == 0) return;
+  for (NSString* name in _messageHandlers.allKeys) {
+    [self _installMessageHandler:name];
+  }
+}
+
+- (void)_installMessageHandler:(NSString*)name {
+  if (![self _browser]) return;  // deferred; _browserDidCreate re-applies
+  if (!_runtimeDomainsEnabled) {
+    // Runtime.enable → bindingCalled events; Page.enable → addScriptToEvaluateOnNewDocument.
+    [self _sendDevToolsMethod:@"Runtime.enable" params:nil];
+    [self _sendDevToolsMethod:@"Page.enable" params:nil];
+    _runtimeDomainsEnabled = YES;
+  }
+  NSString* binding = [kBindingPrefix stringByAppendingString:name];
+  // Raw binding: JS calling window.<binding>(str) fires Runtime.bindingCalled.
+  [self _sendDevToolsMethod:@"Runtime.addBinding" params:@{ @"name": binding }];
+  NSString* shim = messageHandlerShimJS(name);
+  // Future documents (survives navigation).
+  [self _sendDevToolsMethod:@"Page.addScriptToEvaluateOnNewDocument"
+                     params:@{ @"source": shim }];
+  // The already-loaded document, so a handler added after load works immediately.
+  [self _sendDevToolsMethod:@"Runtime.evaluate" params:@{ @"expression": shim }];
+}
+
+- (void)_onDevToolsEventMethod:(NSString*)method params:(NSData*)params {
+  if (![method isEqualToString:@"Runtime.bindingCalled"]) return;
+  id obj = [NSJSONSerialization JSONObjectWithData:params options:0 error:nil];
+  if (![obj isKindOfClass:[NSDictionary class]]) return;
+  NSString* bindingName = obj[@"name"];
+  if (![bindingName hasPrefix:kBindingPrefix]) return;
+  NSString* name = [bindingName substringFromIndex:kBindingPrefix.length];
+  void (^handler)(id) = _messageHandlers[name];
+  if (!handler) return;
+  // `payload` is the single string arg the shim passed (JSON.stringify(body),
+  // or a bare string). Parse it back to a Foundation JSON value; if it isn't
+  // valid JSON, deliver the raw string verbatim.
+  NSString* payload = obj[@"payload"];
+  id body = payload;
+  if ([payload isKindOfClass:[NSString class]]) {
+    NSData* pdata = [payload dataUsingEncoding:NSUTF8StringEncoding];
+    id parsed = [NSJSONSerialization JSONObjectWithData:pdata
+                                                options:NSJSONReadingFragmentsAllowed
+                                                  error:nil];
+    if (parsed) body = parsed;
+  }
+  handler(body);
 }
 
 #pragma mark - Delegate forwarding (events only — state is KVO)

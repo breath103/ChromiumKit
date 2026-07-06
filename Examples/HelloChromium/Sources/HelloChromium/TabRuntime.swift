@@ -24,6 +24,13 @@ final class TabRuntime: NSObject {
     /// The current session new tabs belong to.
     @ObservationIgnored var session: Session!
 
+    /// Optional JS→native bridge sink. When set, every live web view registers a
+    /// `bridgeTest` message handler, and any `window.webkit.messageHandlers.
+    /// bridgeTest.postMessage(body)` from a page is delivered here (main thread).
+    /// The bridge UI test (and any consumer wanting the round-trip proof) sets
+    /// this; normal runs leave it nil so no handler is installed.
+    @ObservationIgnored var onBridgeMessage: ((Any?) -> Void)?
+
     /// The live web view for a record, or nil if the tab is hibernated. Pure
     /// lookup — safe to call from a SwiftUI view body.
     func liveWebView(for record: TabRecord) -> ChromiumWebView? {
@@ -94,6 +101,11 @@ final class TabRuntime: NSObject {
     @discardableResult
     private func register(_ webView: ChromiumWebView, for record: TabRecord) -> ChromiumWebView {
         webView.navigationDelegate = self
+        if let onBridgeMessage {
+            // Round-trip proof: JS `window.webkit.messageHandlers.bridgeTest
+            // .postMessage(body)` → this closure, on the main thread.
+            webView.addMessageHandler(name: "bridgeTest") { body in onBridgeMessage(body) }
+        }
         live[record.id] = LiveTab(webView: webView, record: record)
         return webView
     }

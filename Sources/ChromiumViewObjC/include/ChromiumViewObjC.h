@@ -154,6 +154,33 @@ NS_SWIFT_NAME(ChromiumWebView)
                 completion:(void (^_Nullable)(id _Nullable result, NSError* _Nullable error))completion
     NS_SWIFT_NAME(evaluateJavaScript(_:completion:));
 
+#pragma mark - JS → native message handlers
+
+/// Register a named handler that receives messages posted from JS via
+/// `window.webkit.messageHandlers.<name>.postMessage(body)` — the same shape
+/// as WKWebView's script-message handlers. ChromiumKit installs a shim into
+/// every document (current + future navigations) exposing exactly that
+/// `window.webkit.messageHandlers.<name>` object, so page scripts written
+/// against WKWebView work unchanged.
+///
+/// `body` is delivered to `handler` on the MAIN THREAD as a Foundation JSON
+/// value (NSString / NSNumber / NSDictionary / NSArray / NSNull), unwrapped the
+/// same way `evaluateJavaScript`'s result is: the page's `postMessage` argument
+/// is JSON-serialized in the shim and re-parsed here. A non-JSON argument (e.g.
+/// a bare string that isn't valid JSON) is delivered as that NSString verbatim.
+///
+/// Registering the same `name` twice replaces the previous handler. Handlers
+/// survive navigations. Safe to call before the browser is created — the
+/// registration is applied once CEF attaches.
+- (void)addMessageHandlerName:(NSString*)name
+                      handler:(void (^)(id _Nullable body))handler
+    NS_SWIFT_NAME(addMessageHandler(name:handler:));
+
+/// Remove a handler registered with `addMessageHandler(name:handler:)` and tear
+/// down its `window.webkit.messageHandlers.<name>` shim for future documents.
+- (void)removeMessageHandlerName:(NSString*)name
+    NS_SWIFT_NAME(removeMessageHandler(name:));
+
 #pragma mark - DevTools
 
 /// Open / close Chromium DevTools for this browser.
