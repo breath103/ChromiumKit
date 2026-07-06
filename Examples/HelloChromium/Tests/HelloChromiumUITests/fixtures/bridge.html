@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>bridge fixture</title>
+</head>
+<body>
+<h1>bridge</h1>
+<script>
+  // Post a message to the native `bridgeTest` handler using exactly the
+  // WKWebView shape ChromiumKit shims. The handler + shim are installed via the
+  // DevTools protocol, which can land a beat after the document loads, so retry
+  // on an interval until it exists, then keep re-posting a few times so the
+  // round trip is robust against startup timing in CI.
+  var sent = 0;
+  var timer = setInterval(function () {
+    var mh = window.webkit
+      && window.webkit.messageHandlers
+      && window.webkit.messageHandlers.bridgeTest;
+    if (!mh) return;
+    mh.postMessage(JSON.stringify({ kind: "hello", n: 42 }));
+    if (++sent >= 5) clearInterval(timer);
+  }, 100);
+</script>
+</body>
+</html>
