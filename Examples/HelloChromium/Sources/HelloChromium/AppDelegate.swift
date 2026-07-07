@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configureDocumentStartProofIfRequested(session)
         configureCookieProofIfRequested()
         configureDownloadProofIfRequested(session)
+        configureKeyboardProofIfRequested(session)
         runtime.reconcileLiveTabs() // start reacting to tab deletions
 
         window = NSWindow(
@@ -161,6 +162,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     .flatMap { String(data: $0, encoding: .utf8) }
                 self?.window.title = "download:\(contents ?? "MISSING")"
             }
+        }
+    }
+
+    /// Unhandled-keyboard proof (drives KeyboardUITests). When
+    /// `HELLOCHROMIUM_KEYBOARD_FIXTURE` points at an HTML file, load it and wire
+    /// the runtime's keyboard hook to translate an unhandled Cmd+F / Cmd+P into a
+    /// window-title stamp (`keyboard:searchInPage` / `keyboard:printPage`),
+    /// returning true to swallow it. The fixture autofocuses an input so the CEF
+    /// renderer holds keyboard focus and the key routes through the page first
+    /// (unhandled), then surfaces via `CefKeyboardHandler::OnKeyEvent`. So
+    /// `keyboard:searchInPage` proves the native key path works; no stamp would
+    /// mean the event never surfaced.
+    private func configureKeyboardProofIfRequested(_ session: Session) {
+        guard let fixture = ProcessInfo.processInfo.environment["HELLOCHROMIUM_KEYBOARD_FIXTURE"]
+        else { return }
+        runtime.onKeyboardEvent = { [weak self] event in
+            guard event.modifierFlags.contains(.command) else { return false }
+            let shortcut: String? =
+                switch event.charactersIgnoringModifiers {
+                    case "f": "searchInPage"
+                    case "p": "printPage"
+                    default: nil
+                }
+            guard let shortcut else { return false }
+            self?.window.title = "keyboard:\(shortcut)"
+            return true
+        }
+        if let tab = session.orderedTabs.first {
+            tab.url = URL(fileURLWithPath: fixture)
         }
     }
 

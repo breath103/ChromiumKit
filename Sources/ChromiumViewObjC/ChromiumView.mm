@@ -4,6 +4,7 @@
 #include "include/cef_client.h"
 #include "include/cef_devtools_message_observer.h"
 #include "include/cef_download_handler.h"
+#include "include/cef_keyboard_handler.h"
 #include "include/cef_parser.h"
 #include "include/cef_request_handler.h"
 #include "include/wrapper/cef_helpers.h"
@@ -17,6 +18,31 @@
 @implementation CEFFaviconRef
 - (instancetype)initWithURL:(NSURL*)url {
   if ((self = [super init])) { _url = [url copy]; }
+  return self;
+}
+@end
+
+// An unhandled key-down event handed to `ChromiumView.keyboardHandler`. All
+// fields are set at construction and immutable; built on the main (CEF UI)
+// thread from a `CefKeyEvent`.
+@interface ChromiumKeyEvent ()
+- (instancetype)_initWithCharacters:(nullable NSString*)characters
+        charactersIgnoringModifiers:(nullable NSString*)charactersIgnoringModifiers
+                      modifierFlags:(NSEventModifierFlags)modifierFlags
+                            keyCode:(unsigned short)keyCode;
+@end
+
+@implementation ChromiumKeyEvent
+- (instancetype)_initWithCharacters:(nullable NSString*)characters
+        charactersIgnoringModifiers:(nullable NSString*)charactersIgnoringModifiers
+                      modifierFlags:(NSEventModifierFlags)modifierFlags
+                            keyCode:(unsigned short)keyCode {
+  if ((self = [super init])) {
+    _characters = [characters copy];
+    _charactersIgnoringModifiers = [charactersIgnoringModifiers copy];
+    _modifierFlags = modifierFlags;
+    _keyCode = keyCode;
+  }
   return self;
 }
 @end
@@ -211,12 +237,39 @@ class _CEFDevToolsObserver : public CefDevToolsMessageObserver {
   IMPLEMENT_REFCOUNTING(_CEFDevToolsObserver);
 };
 
+// CEF key-event modifier bitmask -> NSEventModifierFlags.
+static NSEventModifierFlags nsFlagsFromCefModifiers(uint32_t m) {
+  NSEventModifierFlags f = 0;
+  if (m & EVENTFLAG_SHIFT_DOWN) f |= NSEventModifierFlagShift;
+  if (m & EVENTFLAG_CONTROL_DOWN) f |= NSEventModifierFlagControl;
+  if (m & EVENTFLAG_ALT_DOWN) f |= NSEventModifierFlagOption;
+  if (m & EVENTFLAG_COMMAND_DOWN) f |= NSEventModifierFlagCommand;
+  if (m & EVENTFLAG_CAPS_LOCK_ON) f |= NSEventModifierFlagCapsLock;
+  return f;
+}
+
+// A single UTF-16 code unit -> NSString (nil for a null character).
+static NSString* _Nullable nsStringFromChar16(char16_t c) {
+  if (c == 0) return nil;
+  unichar u = (unichar)c;
+  return [NSString stringWithCharacters:&u length:1];
+}
+
+static ChromiumKeyEvent* keyEventFromCef(const CefKeyEvent& e) {
+  return [[ChromiumKeyEvent alloc]
+        _initWithCharacters:nsStringFromChar16(e.character)
+      charactersIgnoringModifiers:nsStringFromChar16(e.unmodified_character)
+                    modifierFlags:nsFlagsFromCefModifiers(e.modifiers)
+                          keyCode:(unsigned short)e.native_key_code];
+}
+
 class _ChromiumClient : public CefClient,
                    public CefLifeSpanHandler,
                    public CefLoadHandler,
                    public CefDisplayHandler,
                    public CefRequestHandler,
-                   public CefDownloadHandler {
+                   public CefDownloadHandler,
+                   public CefKeyboardHandler {
  public:
   _ChromiumClient() = default;
   explicit _ChromiumClient(ChromiumView* owner) : owner_(owner) {}
@@ -225,6 +278,28 @@ class _ChromiumClient : public CefClient,
   CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
   CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
   CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return this; }
+  CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override { return this; }
+
+  // Called after the renderer and page JavaScript have had their chance to
+  // handle the key (CEF's post-page "unhandled key" callback). We deliberately
+  // use OnKeyEvent, NOT OnPreKeyEvent: OnPreKeyEvent fires before the page and
+  // would steal shortcuts (Cmd+F / Cmd+P) from web apps that handle them
+  // themselves. This runs on the CEF UI thread — which is the main thread under
+  // both the external-message-pump and CefRunMessageLoop models on macOS — so
+  // we can consult the Swift `keyboardHandler` synchronously and return its
+  // handled result straight back to CEF. Only key-down events are forwarded.
+  bool OnKeyEvent(CefRefPtr<CefBrowser> /*browser*/,
+                  const CefKeyEvent& event,
+                  CefEventHandle /*os_event*/) override {
+    if (event.type != KEYEVENT_RAWKEYDOWN && event.type != KEYEVENT_KEYDOWN) {
+      return false;
+    }
+    ChromiumView* view = owner_;
+    if (!view) return false;
+    BOOL (^handler)(ChromiumKeyEvent*) = view.keyboardHandler;
+    if (!handler) return false;
+    return handler(keyEventFromCef(event)) ? true : false;
+  }
 
   // A download is starting. Snapshot the item's fields on the UI thread, then
   // hop to the main queue to ask the ChromiumView's downloadDelegate where to

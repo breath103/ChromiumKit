@@ -45,6 +45,13 @@ final class TabRuntime: NSObject {
     /// unhandled downloads are canceled.
     @ObservationIgnored var onDownload: ((ChromiumDownload, String, @escaping (URL?) -> Void) -> Void)?
 
+    /// Optional unhandled-key hook. When set, every live web view installs this
+    /// closure as its `keyboardHandler`; a key-down the page did not handle is
+    /// delivered here (main thread). Return true to mark it handled (swallow it),
+    /// false to let CEF proceed. The keyboard UI test sets it to prove Cmd+F /
+    /// Cmd+P surface natively; normal runs leave it nil.
+    @ObservationIgnored var onKeyboardEvent: ((ChromiumKeyEvent) -> Bool)?
+
     /// The live web view for a record, or nil if the tab is hibernated. Pure
     /// lookup — safe to call from a SwiftUI view body.
     func liveWebView(for record: TabRecord) -> ChromiumWebView? {
@@ -125,6 +132,9 @@ final class TabRuntime: NSObject {
         }
         if onDownload != nil {
             webView.downloadDelegate = self
+        }
+        if let onKeyboardEvent {
+            webView.keyboardHandler = { event in onKeyboardEvent(event) }
         }
         live[record.id] = LiveTab(webView: webView, record: record)
         return webView
