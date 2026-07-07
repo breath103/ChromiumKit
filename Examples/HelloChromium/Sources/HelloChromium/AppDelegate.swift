@@ -38,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configureCookieProofIfRequested()
         configureDownloadProofIfRequested(session)
         configureKeyboardProofIfRequested(session)
+        configureContentBlockProofIfRequested(session)
         runtime.reconcileLiveTabs() // start reacting to tab deletions
 
         window = NSWindow(
@@ -187,6 +188,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             guard let shortcut else { return false }
             self?.window.title = "keyboard:\(shortcut)"
+            return true
+        }
+        if let tab = session.orderedTabs.first {
+            tab.url = URL(fileURLWithPath: fixture)
+        }
+    }
+
+    /// Content-block proof (drives ContentBlockUITests). When
+    /// `HELLOCHROMIUM_ADBLOCK_FIXTURE` points at an HTML file, load it and wire
+    /// the runtime's resource-request blocker to CANCEL any request whose URL
+    /// contains "blockme", stamping `adblock:blocked` into the window title when
+    /// it does. The fixture references a `blockme` subresource (an <img>), so the
+    /// request surfaces via `CefResourceRequestHandler::OnBeforeResourceLoad` and
+    /// is cancelled before it hits the network. Seeing the stamp proves the block
+    /// path works end-to-end; the page itself (an unmarked file:// document) still
+    /// loads, proving unmarked requests are allowed through.
+    private func configureContentBlockProofIfRequested(_ session: Session) {
+        guard let fixture = ProcessInfo.processInfo.environment["HELLOCHROMIUM_ADBLOCK_FIXTURE"]
+        else { return }
+        runtime.onResourceRequest = { [weak self] url, _ in
+            guard url.absoluteString.contains("blockme") else { return false }
+            // Called off-main (CEF IO thread) — hop to main to touch the window.
+            DispatchQueue.main.async { self?.window.title = "adblock:blocked" }
             return true
         }
         if let tab = session.orderedTabs.first {

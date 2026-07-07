@@ -1,0 +1,14 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>adblock-fixture</title>
+  </head>
+  <body>
+    <!-- The document itself is an unmarked file:// resource and loads normally
+         (proving unmarked requests are allowed). This subresource URL contains
+         the "blockme" marker, so ContentBlockUITests' resourceRequestBlocker
+         cancels it via OnBeforeResourceLoad before any network fetch happens. -->
+    <img src="https://ads.example.com/blockme.png" alt="ad">
+  </body>
+</html>

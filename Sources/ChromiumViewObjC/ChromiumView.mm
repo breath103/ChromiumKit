@@ -7,6 +7,7 @@
 #include "include/cef_keyboard_handler.h"
 #include "include/cef_parser.h"
 #include "include/cef_request_handler.h"
+#include "include/cef_resource_request_handler.h"
 #include "include/wrapper/cef_helpers.h"
 
 // Redeclare the public-readonly state-mirror properties as readwrite inside
@@ -263,11 +264,35 @@ static ChromiumKeyEvent* keyEventFromCef(const CefKeyEvent& e) {
                           keyCode:(unsigned short)e.native_key_code];
 }
 
+static NSString* nsStringFromResourceType(cef_resource_type_t type) {
+  switch (type) {
+    case RT_MAIN_FRAME: return @"document";
+    case RT_SUB_FRAME: return @"subframe";
+    case RT_STYLESHEET: return @"stylesheet";
+    case RT_SCRIPT: return @"script";
+    case RT_IMAGE: return @"image";
+    case RT_FONT_RESOURCE: return @"font";
+    case RT_OBJECT: return @"object";
+    case RT_MEDIA: return @"media";
+    case RT_WORKER: return @"worker";
+    case RT_SHARED_WORKER: return @"shared-worker";
+    case RT_PREFETCH: return @"prefetch";
+    case RT_FAVICON: return @"favicon";
+    case RT_XHR: return @"xhr";
+    case RT_PING: return @"ping";
+    case RT_SERVICE_WORKER: return @"service-worker";
+    case RT_CSP_REPORT: return @"csp-report";
+    case RT_PLUGIN_RESOURCE: return @"plugin-resource";
+    default: return @"other";
+  }
+}
+
 class _ChromiumClient : public CefClient,
                    public CefLifeSpanHandler,
                    public CefLoadHandler,
                    public CefDisplayHandler,
                    public CefRequestHandler,
+                   public CefResourceRequestHandler,
                    public CefDownloadHandler,
                    public CefKeyboardHandler {
  public:
@@ -277,8 +302,45 @@ class _ChromiumClient : public CefClient,
   CefRefPtr<CefLoadHandler> GetLoadHandler() override { return this; }
   CefRefPtr<CefDisplayHandler> GetDisplayHandler() override { return this; }
   CefRefPtr<CefRequestHandler> GetRequestHandler() override { return this; }
+  CefRefPtr<CefResourceRequestHandler> GetResourceRequestHandler(
+      CefRefPtr<CefBrowser> /*browser*/,
+      CefRefPtr<CefFrame> /*frame*/,
+      CefRefPtr<CefRequest> /*request*/,
+      bool /*is_navigation*/,
+      bool /*is_download*/,
+      const CefString& /*request_initiator*/,
+      bool& /*disable_default_handling*/) override {
+    // Only intercept when a blocker is installed; otherwise return null so CEF
+    // keeps its default network path (and its associated request-context
+    // handler, if any) untouched — no per-request overhead when unused.
+    ChromiumView* view = owner_;
+    return (view && view.resourceRequestBlocker) ? this : nullptr;
+  }
   CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return this; }
   CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override { return this; }
+
+  // Called on the CEF IO thread before every resource request (main-frame
+  // navigations + every subresource) hits the network — the CEF analogue of a
+  // WKContentRuleList "block" action. Consults the Swift `resourceRequestBlocker`
+  // SYNCHRONOUSLY and cancels the request when it returns YES. This deliberately
+  // does NOT hop to the main thread: ad blocking needs a per-request verdict
+  // before the network fetch starts, so the blocker must be thread-safe + fast.
+  // owner_ is __weak (ARC-safe to load off-main); a nil view or nil blocker
+  // means "allow" (RV_CONTINUE).
+  cef_return_value_t OnBeforeResourceLoad(
+      CefRefPtr<CefBrowser> /*browser*/,
+      CefRefPtr<CefFrame> /*frame*/,
+      CefRefPtr<CefRequest> request,
+      CefRefPtr<CefCallback> /*callback*/) override {
+    ChromiumView* view = owner_;
+    if (!view) return RV_CONTINUE;
+    BOOL (^blocker)(NSURL*, NSString*) = view.resourceRequestBlocker;
+    if (!blocker) return RV_CONTINUE;
+    NSURL* url = nsurlFromCefString(request->GetURL());
+    if (!url) return RV_CONTINUE;
+    NSString* type = nsStringFromResourceType(request->GetResourceType());
+    return blocker(url, type) ? RV_CANCEL : RV_CONTINUE;
+  }
 
   // Called after the renderer and page JavaScript have had their chance to
   // handle the key (CEF's post-page "unhandled key" callback). We deliberately

@@ -52,6 +52,14 @@ final class TabRuntime: NSObject {
     /// Cmd+P surface natively; normal runs leave it nil.
     @ObservationIgnored var onKeyboardEvent: ((ChromiumKeyEvent) -> Bool)?
 
+    /// Optional resource-request blocker. When set, every live web view installs
+    /// this closure as its `resourceRequestBlocker`; before each resource request
+    /// (main-frame + subresources) hits the network, it is asked whether to block
+    /// (return true) or allow (false). IMPORTANT: called on a BACKGROUND (CEF IO)
+    /// thread — the closure must be thread-safe. The content-block UI test sets it
+    /// to prove a marked request is cancelled; normal runs leave it nil.
+    @ObservationIgnored nonisolated(unsafe) var onResourceRequest: ((URL, String) -> Bool)?
+
     /// The live web view for a record, or nil if the tab is hibernated. Pure
     /// lookup — safe to call from a SwiftUI view body.
     func liveWebView(for record: TabRecord) -> ChromiumWebView? {
@@ -135,6 +143,10 @@ final class TabRuntime: NSObject {
         }
         if let onKeyboardEvent {
             webView.keyboardHandler = { event in onKeyboardEvent(event) }
+        }
+        if let onResourceRequest {
+            // Called on a background CEF IO thread — keep the closure body pure.
+            webView.resourceRequestBlocker = { url, type in onResourceRequest(url, type) }
         }
         live[record.id] = LiveTab(webView: webView, record: record)
         return webView

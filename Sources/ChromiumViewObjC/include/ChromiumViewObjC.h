@@ -220,6 +220,18 @@ NS_SWIFT_NAME(ChromiumWebView)
 /// matching WKWebView, where the page sees the event first.
 @property (nonatomic, copy, nullable) BOOL (^keyboardHandler)(ChromiumKeyEvent* event);
 
+/// Invoked before every resource request (main-frame navigations + every
+/// subresource: images, scripts, stylesheets, XHR/fetch, …) hits the network —
+/// CEF's `CefResourceRequestHandler::OnBeforeResourceLoad`. Return YES to CANCEL
+/// (block) the request, NO to allow it. This is the CEF analogue of a
+/// `WKContentRuleList` "block" action, the primitive for ad/tracker blocking.
+/// `resourceType` is a lowercase string ("document", "image", "script",
+/// "stylesheet", "xhr", "font", "media", …). IMPORTANT: called on a BACKGROUND
+/// (CEF IO) thread, synchronously — the verdict must be thread-safe and fast (no
+/// blocking work, no hop to the main thread). Set it before the first load; when
+/// nil, CEF's default network path is used unchanged (no interception overhead).
+@property (nonatomic, copy, nullable) BOOL (^resourceRequestBlocker)(NSURL* url, NSString* resourceType);
+
 - (instancetype)initWithFrame:(NSRect)frame URL:(nullable NSURL*)url NS_DESIGNATED_INITIALIZER;
 - (instancetype)initWithFrame:(NSRect)frame NS_UNAVAILABLE;
 - (instancetype)initWithCoder:(NSCoder*)c NS_UNAVAILABLE;
