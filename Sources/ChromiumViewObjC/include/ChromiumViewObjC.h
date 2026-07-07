@@ -240,6 +240,17 @@ NS_SWIFT_NAME(ChromiumWebView)
 - (void)goBack;
 - (void)goForward;
 
+#pragma mark - Audio
+
+/// Mute or unmute this browser's audio output — CEF's
+/// `CefBrowserHost::SetAudioMuted`. Non-destructive: media keeps playing but is
+/// silenced, so setting it back to `NO` resumes audio in place (unlike stopping
+/// media or capturing the audio stream). This is the CEF analogue of
+/// WKWebView's `setAllMediaPlaybackSuspended(_:)` "stop the noise" control.
+/// Safe to call before the browser is created — it no-ops until CEF attaches,
+/// and the getter reports `NO` until then.
+@property (nonatomic, assign, getter=isAudioMuted) BOOL audioMuted;
+
 /// JS eval. `completion` is called on the main thread. `result` is a Foundation
 /// JSON value (NSString / NSNumber / NSDictionary / NSArray / NSNull) unwrapped
 /// from the DevTools Protocol's `RemoteObject`.

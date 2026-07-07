@@ -773,6 +773,11 @@ class _ChromiumClient : public CefClient,
 - (void)goBack            { if (auto b = [self _browser]) b->GoBack(); }
 - (void)goForward         { if (auto b = [self _browser]) b->GoForward(); }
 
+#pragma mark - Audio
+
+- (BOOL)isAudioMuted { auto b = [self _browser]; return b ? b->GetHost()->IsAudioMuted() : NO; }
+- (void)setAudioMuted:(BOOL)muted { if (auto b = [self _browser]) b->GetHost()->SetAudioMuted(muted); }
+
 #pragma mark - DevTools
 
 - (BOOL)isDevToolsOpen {
