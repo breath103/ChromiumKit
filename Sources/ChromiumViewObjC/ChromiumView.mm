@@ -48,6 +48,34 @@
 }
 @end
 
+// A pending navigation handed to `ChromiumView.navigationDecisionHandler` from
+// OnBeforeBrowse. All fields set at construction and immutable; built on the
+// main (CEF UI) thread from a CefRequest/CefFrame.
+@interface ChromiumNavigationRequest ()
+- (instancetype)_initWithURL:(nullable NSURL*)url
+                   mainFrame:(BOOL)mainFrame
+                 userGesture:(BOOL)userGesture
+                    redirect:(BOOL)redirect
+              navigationType:(ChromiumNavigationType)navigationType;
+@end
+
+@implementation ChromiumNavigationRequest
+- (instancetype)_initWithURL:(nullable NSURL*)url
+                   mainFrame:(BOOL)mainFrame
+                 userGesture:(BOOL)userGesture
+                    redirect:(BOOL)redirect
+              navigationType:(ChromiumNavigationType)navigationType {
+  if ((self = [super init])) {
+    _url = [url copy];
+    _mainFrame = mainFrame;
+    _userGesture = userGesture;
+    _redirect = redirect;
+    _navigationType = navigationType;
+  }
+  return self;
+}
+@end
+
 // A live handle to one CEF download. Created in OnBeforeDownload, updated on
 // each OnDownloadUpdated. Progress/lifecycle fields are declared readwrite here
 // so their synthesized setters fire KVO (public header exposes them readonly).
@@ -264,6 +292,28 @@ static ChromiumKeyEvent* keyEventFromCef(const CefKeyEvent& e) {
                           keyCode:(unsigned short)e.native_key_code];
 }
 
+// Map a CEF page-transition type to the coarse navigation kind Mirror routes on.
+static ChromiumNavigationType navTypeFromTransition(cef_transition_type_t t) {
+  switch (t & TT_SOURCE_MASK) {
+    case TT_LINK: return ChromiumNavigationTypeLinkActivated;
+    case TT_FORM_SUBMIT: return ChromiumNavigationTypeFormSubmitted;
+    case TT_RELOAD: return ChromiumNavigationTypeReload;
+    default: return ChromiumNavigationTypeOther;
+  }
+}
+
+static ChromiumNavigationRequest* navRequestFromCef(CefRefPtr<CefFrame> frame,
+                                                    CefRefPtr<CefRequest> request,
+                                                    bool user_gesture,
+                                                    bool is_redirect) {
+  return [[ChromiumNavigationRequest alloc]
+        _initWithURL:nsurlFromCefString(request->GetURL())
+           mainFrame:(frame && frame->IsMain()) ? YES : NO
+         userGesture:user_gesture ? YES : NO
+            redirect:is_redirect ? YES : NO
+      navigationType:navTypeFromTransition(request->GetTransitionType())];
+}
+
 static NSString* nsStringFromResourceType(cef_resource_type_t type) {
   switch (type) {
     case RT_MAIN_FRAME: return @"document";
@@ -318,6 +368,26 @@ class _ChromiumClient : public CefClient,
   }
   CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return this; }
   CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override { return this; }
+
+  // Called on the CEF UI thread (== main thread here) before a navigation
+  // commits — the CEF analogue of WKWebView's decidePolicyFor navigationAction.
+  // Consults the Swift `navigationDecisionHandler` SYNCHRONOUSLY and returns
+  // true to CANCEL the navigation (handler returned YES), false to allow it. A
+  // nil view or nil handler means "allow". Modifier/middle-click new-tab
+  // navigations do NOT reach here — CEF routes those via OnOpenURLFromTab.
+  bool OnBeforeBrowse(CefRefPtr<CefBrowser> /*browser*/,
+                      CefRefPtr<CefFrame> frame,
+                      CefRefPtr<CefRequest> request,
+                      bool user_gesture,
+                      bool is_redirect) override {
+    ChromiumView* view = owner_;
+    if (!view) return false;
+    BOOL (^handler)(ChromiumNavigationRequest*) = view.navigationDecisionHandler;
+    if (!handler) return false;
+    return handler(navRequestFromCef(frame, request, user_gesture, is_redirect))
+               ? true
+               : false;
+  }
 
   // Called on the CEF IO thread before every resource request (main-frame
   // navigations + every subresource) hits the network — the CEF analogue of a

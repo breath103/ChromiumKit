@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>navigation-fixture</title>
+  </head>
+  <body>
+    <!-- The fixture document itself is an unmarked file:// resource and loads
+         normally (its own OnBeforeBrowse is allowed). On load it attempts a
+         main-frame navigation to a URL containing the "blocknav" marker;
+         NavigationDecisionUITests' navigationDecisionHandler cancels that via
+         CefRequestHandler::OnBeforeBrowse before it commits, so the page never
+         leaves this document. -->
+    <a id="link" href="https://blocked.example.com/blocknav">go</a>
+    <script>
+      window.addEventListener("load", function () {
+        setTimeout(function () {
+          window.location.href = "https://blocked.example.com/blocknav";
+        }, 100);
+      });
+    </script>
+  </body>
+</html>

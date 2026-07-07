@@ -39,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configureDownloadProofIfRequested(session)
         configureKeyboardProofIfRequested(session)
         configureContentBlockProofIfRequested(session)
+        configureNavigationBlockProofIfRequested(session)
         runtime.reconcileLiveTabs() // start reacting to tab deletions
 
         window = NSWindow(
@@ -212,6 +213,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Called off-main (CEF IO thread) — hop to main to touch the window.
             DispatchQueue.main.async { self?.window.title = "adblock:blocked" }
             return true
+        }
+        if let tab = session.orderedTabs.first {
+            tab.url = URL(fileURLWithPath: fixture)
+        }
+    }
+
+    /// Navigation-decision proof (drives NavigationDecisionUITests). When
+    /// `HELLOCHROMIUM_NAVBLOCK_FIXTURE` points at an HTML file, load it and wire
+    /// the runtime's navigation-decision hook to CANCEL any main-frame
+    /// navigation whose URL contains "blocknav", stamping `navblock:blocked`
+    /// into the window title when it does. The fixture navigates the main frame
+    /// to a `blocknav` URL on load, so the attempt surfaces via
+    /// `CefRequestHandler::OnBeforeBrowse` and is cancelled before it commits.
+    /// Seeing the stamp proves the decision path works end-to-end; the fixture
+    /// document itself (an unmarked file:// load) still loads, proving unmarked
+    /// navigations are allowed through.
+    private func configureNavigationBlockProofIfRequested(_ session: Session) {
+        guard let fixture = ProcessInfo.processInfo.environment["HELLOCHROMIUM_NAVBLOCK_FIXTURE"]
+        else { return }
+        runtime.onNavigationDecision = { [weak self] request in
+            guard let url = request.url, url.absoluteString.contains("blocknav")
+            else { return false }
+            // Called on the main thread — safe to touch the window directly.
+            self?.window.title = "navblock:blocked"
+            return true // YES = cancel the navigation
         }
         if let tab = session.orderedTabs.first {
             tab.url = URL(fileURLWithPath: fixture)

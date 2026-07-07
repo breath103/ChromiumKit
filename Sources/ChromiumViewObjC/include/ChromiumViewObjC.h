@@ -8,6 +8,7 @@ NS_ASSUME_NONNULL_BEGIN
 @class ChromiumConfiguration;
 @class ChromiumDownload;
 @class ChromiumKeyEvent;
+@class ChromiumNavigationRequest;
 @protocol ChromiumNavigationDelegate;
 @protocol ChromiumDownloadDelegate;
 
@@ -192,6 +193,42 @@ NS_SWIFT_NAME(ChromiumKeyEvent)
 - (instancetype)init NS_UNAVAILABLE;
 @end
 
+/// The kind of a navigation, mirroring the subset of `WKNavigationType` Mirror's
+/// link-routing cares about. Derived from CEF's page-transition core type.
+typedef NS_ENUM(NSInteger, ChromiumNavigationType) {
+    /// A link was activated (CEF `TT_LINK`).
+    ChromiumNavigationTypeLinkActivated = 0,
+    /// A form was submitted (CEF `TT_FORM_SUBMIT`).
+    ChromiumNavigationTypeFormSubmitted,
+    /// The page was reloaded (CEF `TT_RELOAD`).
+    ChromiumNavigationTypeReload,
+    /// Any other transition (typed URL, back/forward, subframe navigation, ...).
+    ChromiumNavigationTypeOther,
+} NS_SWIFT_NAME(ChromiumNavigationType);
+
+/// A pending navigation handed to `ChromiumView.navigationDecisionHandler`
+/// before it commits — CEF's `CefRequestHandler::OnBeforeBrowse`, the analogue
+/// of `WKNavigationDelegate.webView(_:decidePolicyFor:decisionHandler:)`. All
+/// fields are set at construction and immutable; built on the main (CEF UI)
+/// thread. NOTE: modifier-click / middle-click "open in new tab" navigations do
+/// NOT arrive here — CEF routes those through the `requestsNewTab` delegate
+/// (`OnOpenURLFromTab`); this is the frame-commit decision hook, not the
+/// click-disposition hook.
+NS_SWIFT_NAME(ChromiumNavigationRequest)
+@interface ChromiumNavigationRequest : NSObject
+/// The destination URL of the navigation.
+@property (nonatomic, readonly, nullable) NSURL* url;
+/// Whether the navigation targets the main frame (vs. a subframe/iframe).
+@property (nonatomic, readonly, getter=isMainFrame) BOOL mainFrame;
+/// Whether the navigation was triggered by an explicit user gesture.
+@property (nonatomic, readonly, getter=isUserGesture) BOOL userGesture;
+/// Whether this is a redirect of an already in-flight navigation.
+@property (nonatomic, readonly, getter=isRedirect) BOOL redirect;
+/// The navigation kind, derived from CEF's page-transition type.
+@property (nonatomic, readonly) ChromiumNavigationType navigationType;
+- (instancetype)init NS_UNAVAILABLE;
+@end
+
 NS_SWIFT_NAME(ChromiumWebView)
 @interface ChromiumView : NSView
 
@@ -231,6 +268,17 @@ NS_SWIFT_NAME(ChromiumWebView)
 /// blocking work, no hop to the main thread). Set it before the first load; when
 /// nil, CEF's default network path is used unchanged (no interception overhead).
 @property (nonatomic, copy, nullable) BOOL (^resourceRequestBlocker)(NSURL* url, NSString* resourceType);
+
+/// Invoked before a navigation commits (main-frame + subframe loads) — CEF's
+/// `CefRequestHandler::OnBeforeBrowse`, the analogue of WKWebView's
+/// `decidePolicyFor navigationAction`. Return YES to CANCEL the navigation, NO
+/// to allow it. This is the hook for intercepting and re-routing link
+/// navigations (open externally, open in a new tab, block a scheme). Called
+/// SYNCHRONOUSLY on the MAIN THREAD (CEF UI thread) — the verdict must be quick
+/// and must not block. NOTE: modifier/middle clicks that open a new tab do NOT
+/// pass through here (they use the `requestsNewTab` delegate); when nil, every
+/// navigation is allowed.
+@property (nonatomic, copy, nullable) BOOL (^navigationDecisionHandler)(ChromiumNavigationRequest* request);
 
 - (instancetype)initWithFrame:(NSRect)frame URL:(nullable NSURL*)url NS_DESIGNATED_INITIALIZER;
 - (instancetype)initWithFrame:(NSRect)frame NS_UNAVAILABLE;

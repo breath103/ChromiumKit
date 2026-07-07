@@ -60,6 +60,14 @@ final class TabRuntime: NSObject {
     /// to prove a marked request is cancelled; normal runs leave it nil.
     @ObservationIgnored nonisolated(unsafe) var onResourceRequest: ((URL, String) -> Bool)?
 
+    /// Optional navigation-decision hook. When set, every live web view installs
+    /// this closure as its `navigationDecisionHandler`; before a navigation
+    /// commits it is asked whether to CANCEL (return true) or allow (false).
+    /// Called on the MAIN THREAD (unlike `onResourceRequest`). The
+    /// navigation-decision UI test sets it to prove a marked navigation is
+    /// cancelled via `OnBeforeBrowse`; normal runs leave it nil.
+    @ObservationIgnored var onNavigationDecision: ((ChromiumNavigationRequest) -> Bool)?
+
     /// The live web view for a record, or nil if the tab is hibernated. Pure
     /// lookup — safe to call from a SwiftUI view body.
     func liveWebView(for record: TabRecord) -> ChromiumWebView? {
@@ -147,6 +155,10 @@ final class TabRuntime: NSObject {
         if let onResourceRequest {
             // Called on a background CEF IO thread — keep the closure body pure.
             webView.resourceRequestBlocker = { url, type in onResourceRequest(url, type) }
+        }
+        if let onNavigationDecision {
+            // Called on the main thread before a navigation commits.
+            webView.navigationDecisionHandler = { request in onNavigationDecision(request) }
         }
         live[record.id] = LiveTab(webView: webView, record: record)
         return webView
