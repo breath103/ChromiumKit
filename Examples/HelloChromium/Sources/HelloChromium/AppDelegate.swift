@@ -40,6 +40,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configureKeyboardProofIfRequested(session)
         configureContentBlockProofIfRequested(session)
         configureNavigationBlockProofIfRequested(session)
+        configureZoomProofIfRequested(session)
         runtime.reconcileLiveTabs() // start reacting to tab deletions
 
         window = NSWindow(
@@ -238,6 +239,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // Called on the main thread — safe to touch the window directly.
             self?.window.title = "navblock:blocked"
             return true // YES = cancel the navigation
+        }
+        if let tab = session.orderedTabs.first {
+            tab.url = URL(fileURLWithPath: fixture)
+        }
+    }
+
+    /// Page-zoom round-trip proof (drives ZoomUITests). When
+    /// `HELLOCHROMIUM_ZOOM_FIXTURE` points at an HTML file, load it and watch the
+    /// page's `devicePixelRatio` over the `bridgeTest` channel: capture the first
+    /// value as a baseline, set `zoomFactor = 1.5` on the live web view, and once
+    /// a later report rises to ~1.5x the baseline stamp `zoom:1.5` into the window
+    /// title — page zoom multiplies `devicePixelRatio`, so the stamp proves
+    /// `CefBrowserHost::SetZoomLevel` took effect page-side. The ratio (not the
+    /// absolute DPR) keeps it independent of the display's own backing scale.
+    private func configureZoomProofIfRequested(_ session: Session) {
+        guard let fixture = ProcessInfo.processInfo.environment["HELLOCHROMIUM_ZOOM_FIXTURE"]
+        else { return }
+        var baseline: Double?
+        var zoomApplied = false
+        runtime.onBridgeMessage = { [weak self] body in
+            guard let self, let dpr = (body as? NSNumber)?.doubleValue, dpr > 0 else { return }
+            guard let baselineDPR = baseline else {
+                baseline = dpr
+                if let tab = session.orderedTabs.first,
+                   let webView = self.runtime.liveWebView(for: tab) {
+                    webView.zoomFactor = 1.5
+                    zoomApplied = true
+                }
+                return
+            }
+            if zoomApplied, dpr >= baselineDPR * 1.4 {
+                self.window.title = "zoom:\(String(format: "%.1f", dpr / baselineDPR))"
+            }
         }
         if let tab = session.orderedTabs.first {
             tab.url = URL(fileURLWithPath: fixture)

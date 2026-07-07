@@ -311,6 +311,18 @@ NS_SWIFT_NAME(ChromiumWebView)
 /// and the getter reports `NO` until then.
 @property (nonatomic, assign, getter=isAudioMuted) BOOL audioMuted;
 
+#pragma mark - Zoom
+
+/// Page zoom as a multiplier — `1.0` = 100%, `1.5` = 150%, `0.5` = 50% — the
+/// CEF analogue of `WKWebView.pageZoom`. Maps to `CefBrowserHost::SetZoomLevel`
+/// via Chromium's `factor = 1.2 ^ level` relation, so callers work in intuitive
+/// percentage-style factors instead of raw zoom levels. Changes CSS rendering
+/// (like `document.body.style.zoom`), NOT the native view scale. KVO-observable.
+/// Safe to set before the browser is created — the factor is remembered and
+/// applied once CEF attaches; the getter reports the last value set (default
+/// `1.0`).
+@property (nonatomic, assign) CGFloat zoomFactor;
+
 /// JS eval. `completion` is called on the main thread. `result` is a Foundation
 /// JSON value (NSString / NSNumber / NSDictionary / NSArray / NSNull) unwrapped
 /// from the DevTools Protocol's `RemoteObject`.

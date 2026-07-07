@@ -9,6 +9,7 @@
 #include "include/cef_request_handler.h"
 #include "include/cef_resource_request_handler.h"
 #include "include/wrapper/cef_helpers.h"
+#include <cmath>
 
 // Redeclare the public-readonly state-mirror properties as readwrite inside
 // the class so synthesized setters fire KVO automatically. Public callers
@@ -174,6 +175,7 @@
                     fullPath:(nullable NSString*)fullPath
                     callback:(CefRefPtr<CefDownloadItemCallback>)callback;
 - (void)_reinstallUserScripts;
+- (void)_applyZoomFactor;
 @end
 
 namespace {
@@ -679,6 +681,10 @@ class _ChromiumClient : public CefClient,
   // the ChromiumDownload handle created in OnBeforeDownload. Dropped when the
   // download finishes/cancels (the delegate retains its own reference).
   NSMutableDictionary<NSNumber*, ChromiumDownload*>* _downloads;
+  // Requested page zoom as a multiplier (1.0 == 100%). Stored so the
+  // getter is deterministic and the value survives a not-yet-attached
+  // browser; pushed to CEF as a zoom LEVEL whenever a browser exists.
+  CGFloat _zoomFactor;
 }
 
 @synthesize URL = _URL;
@@ -694,6 +700,7 @@ class _ChromiumClient : public CefClient,
     _documentStartScripts = [NSMutableArray new];
     _documentStartScriptIdentifiers = [NSMutableArray new];
     _downloads = [NSMutableDictionary new];
+    _zoomFactor = 1.0;
     self.wantsLayer = YES;
   }
   return self;
@@ -862,6 +869,7 @@ class _ChromiumClient : public CefClient,
   _runtimeDomainsEnabled = NO;
   [self _installMessageHandlerShims];
   [self _reinstallUserScripts];
+  [self _applyZoomFactor];
 }
 
 - (void)resizeSubviewsWithOldSize:(NSSize)oldSize {
@@ -909,6 +917,31 @@ class _ChromiumClient : public CefClient,
 
 - (BOOL)isAudioMuted { auto b = [self _browser]; return b ? b->GetHost()->IsAudioMuted() : NO; }
 - (void)setAudioMuted:(BOOL)muted { if (auto b = [self _browser]) b->GetHost()->SetAudioMuted(muted); }
+
+#pragma mark - Zoom
+
+// Chromium relates the zoom LEVEL that CefBrowserHost::SetZoomLevel takes to the
+// zoom FACTOR (100% == factor 1.0) callers think in via factor = 1.2 ^ level,
+// i.e. level = log(factor) / log(1.2) — Chromium's kTextSizeMultiplierRatio.
+static const double kChromiumZoomTextSizeMultiplierRatio = 1.2;
+
+- (CGFloat)zoomFactor { return _zoomFactor; }
+
+- (void)setZoomFactor:(CGFloat)zoomFactor {
+  _zoomFactor = zoomFactor;
+  [self _applyZoomFactor];
+}
+
+// Push the stored factor to CEF as a zoom level. No-op until a browser attaches;
+// _browserDidCreate re-applies so a zoom set before creation still takes effect.
+- (void)_applyZoomFactor {
+  auto b = [self _browser];
+  if (!b) return;
+  double level = (_zoomFactor > 0)
+      ? std::log((double)_zoomFactor) / std::log(kChromiumZoomTextSizeMultiplierRatio)
+      : 0.0;
+  b->GetHost()->SetZoomLevel(level);
+}
 
 #pragma mark - DevTools
 
