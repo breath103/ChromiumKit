@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>zoom fixture</title>
+</head>
+<body>
+<h1>zoom</h1>
+<script>
+  // Report devicePixelRatio to the native `bridgeTest` handler on a short
+  // interval. The proving ground captures the first value as a baseline, then
+  // sets zoomFactor = 1.5 on the live web view; page zoom multiplies
+  // devicePixelRatio, so a later report ~1.5x the baseline proves SetZoomLevel
+  // took effect page-side. The handler + shim can land a beat after the
+  // document loads, so guard on its existence before posting.
+  setInterval(function () {
+    var mh = window.webkit
+      && window.webkit.messageHandlers
+      && window.webkit.messageHandlers.bridgeTest;
+    if (mh) mh.postMessage(window.devicePixelRatio);
+  }, 100);
+</script>
+</body>
+</html>

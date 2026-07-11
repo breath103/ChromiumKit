@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>keyboard</title>
+</head>
+<body>
+  <!-- autofocus so the CEF renderer holds keyboard focus and key-downs route
+       into the page (which does not handle Cmd+F / Cmd+P), then surface to
+       native via CefKeyboardHandler::OnKeyEvent. -->
+  <input id="field" autofocus>
+  <p>unhandled-keyboard fixture</p>
+</body>
+</html>

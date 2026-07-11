@@ -31,6 +31,56 @@ final class TabRuntime: NSObject {
     /// this; normal runs leave it nil so no handler is installed.
     @ObservationIgnored var onBridgeMessage: ((Any?) -> Void)?
 
+    /// Optional document-start user script. When set, every live web view gets
+    /// this JS injected at `.atDocumentStart` (before the page's own scripts run,
+    /// on every load) via `addUserScript(atDocumentStart:)`. The document-start UI
+    /// test sets it to prove the injection lands before page scripts; normal runs
+    /// leave it nil.
+    @ObservationIgnored var documentStartScript: String?
+
+    /// Optional download destination provider. When set, every live web view
+    /// installs this runtime as its `downloadDelegate`; a starting download asks
+    /// this closure (via the delegate) for a destination file URL, or nil to
+    /// cancel. The download UI test sets it; normal runs leave it nil so
+    /// unhandled downloads are canceled.
+    @ObservationIgnored var onDownload: ((ChromiumDownload, String, @escaping (URL?) -> Void) -> Void)?
+
+    /// Optional unhandled-key hook. When set, every live web view installs this
+    /// closure as its `keyboardHandler`; a key-down the page did not handle is
+    /// delivered here (main thread). Return true to mark it handled (swallow it),
+    /// false to let CEF proceed. The keyboard UI test sets it to prove Cmd+F /
+    /// Cmd+P surface natively; normal runs leave it nil.
+    @ObservationIgnored var onKeyboardEvent: ((ChromiumKeyEvent) -> Bool)?
+
+    /// Optional resource-request blocker. When set, every live web view installs
+    /// this closure as its `resourceRequestBlocker`; before each resource request
+    /// (main-frame + subresources) hits the network, it is asked whether to block
+    /// (return true) or allow (false). IMPORTANT: called on a BACKGROUND (CEF IO)
+    /// thread — the closure must be thread-safe. The content-block UI test sets it
+    /// to prove a marked request is cancelled; normal runs leave it nil.
+    @ObservationIgnored nonisolated(unsafe) var onResourceRequest: ((URL, String) -> Bool)?
+
+    /// Optional navigation-decision hook. When set, every live web view installs
+    /// this closure as its `navigationDecisionHandler`; before a navigation
+    /// commits it is asked whether to CANCEL (return true) or allow (false).
+    /// Called on the MAIN THREAD (unlike `onResourceRequest`). The
+    /// navigation-decision UI test sets it to prove a marked navigation is
+    /// cancelled via `OnBeforeBrowse`; normal runs leave it nil.
+    @ObservationIgnored var onNavigationDecision: ((ChromiumNavigationRequest) -> Bool)?
+
+    /// Optional find-in-page result hook. When set, every live web view installs
+    /// this closure as its `findResultHandler`; results from a `findText(...)`
+    /// search are delivered here on the main thread. The find UI test sets it to
+    /// prove `CefBrowserHost::Find` match counts surface; normal runs leave it nil.
+    @ObservationIgnored var onFindResult: ((ChromiumFindResult) -> Void)?
+
+    /// Optional per-tab data-store provider. When set, `wake` builds each tab's
+    /// web view with the returned `ChromiumDataStore` (cookies / cache /
+    /// localStorage isolation) instead of the default global store. The
+    /// data-isolation UI test sets it to give two tabs two isolated stores;
+    /// normal runs leave it nil so every tab shares the default store.
+    @ObservationIgnored var dataStoreProvider: ((TabRecord) -> ChromiumDataStore?)?
+
     /// The live web view for a record, or nil if the tab is hibernated. Pure
     /// lookup — safe to call from a SwiftUI view body.
     func liveWebView(for record: TabRecord) -> ChromiumWebView? {
@@ -42,7 +92,13 @@ final class TabRuntime: NSObject {
     @discardableResult
     func wake(_ record: TabRecord) -> ChromiumWebView {
         if let existing = live[record.id] { return existing.webView }
-        return register(ChromiumWebView(frame: .zero, url: record.url), for: record)
+        let webView: ChromiumWebView =
+            if let store = dataStoreProvider?(record) {
+                ChromiumWebView(frame: .zero, url: record.url, dataStore: store)
+            } else {
+                ChromiumWebView(frame: .zero, url: record.url)
+            }
+        return register(webView, for: record)
     }
 
     /// Hibernate a tab: drop the live web view. The record keeps the last
@@ -106,6 +162,27 @@ final class TabRuntime: NSObject {
             // .postMessage(body)` → this closure, on the main thread.
             webView.addMessageHandler(name: "bridgeTest") { body in onBridgeMessage(body) }
         }
+        if let documentStartScript {
+            webView.addUserScript(atDocumentStart: documentStartScript)
+        }
+        if onDownload != nil {
+            webView.downloadDelegate = self
+        }
+        if let onKeyboardEvent {
+            webView.keyboardHandler = { event in onKeyboardEvent(event) }
+        }
+        if let onResourceRequest {
+            // Called on a background CEF IO thread — keep the closure body pure.
+            webView.resourceRequestBlocker = { url, type in onResourceRequest(url, type) }
+        }
+        if let onNavigationDecision {
+            // Called on the main thread before a navigation commits.
+            webView.navigationDecisionHandler = { request in onNavigationDecision(request) }
+        }
+        if let onFindResult {
+            // Called on the main thread as CefBrowserHost::Find reports matches.
+            webView.findResultHandler = { result in onFindResult(result) }
+        }
         live[record.id] = LiveTab(webView: webView, record: record)
         return webView
     }
@@ -164,6 +241,26 @@ extension TabRuntime: ChromiumNavigationDelegate {
                 session.selectedTabID = record.id
             }
             return shell
+        }
+    }
+}
+
+extension TabRuntime: ChromiumDownloadDelegate {
+    // CEF invokes this on the main thread; hop into the actor. Forward to the
+    // configured `onDownload` closure (which supplies a destination), or cancel
+    // by completing with nil when no provider is set.
+    nonisolated func webView(
+        _: ChromiumWebView,
+        decideDestinationFor download: ChromiumDownload,
+        suggestedFilename: String,
+        completionHandler: @escaping (URL?) -> Void
+    ) {
+        MainActor.assumeIsolated {
+            if let onDownload {
+                onDownload(download, suggestedFilename, completionHandler)
+            } else {
+                completionHandler(nil)
+            }
         }
     }
 }

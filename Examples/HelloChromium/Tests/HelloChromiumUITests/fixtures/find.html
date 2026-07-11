@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>find</title>
+</head>
+<body>
+  <p>banana banana banana</p>
+  <script>
+    // Signal readiness so the proof harness knows the page (and its text) is
+    // in the DOM and can start a find-in-page search.
+    var mh = window.webkit
+      && window.webkit.messageHandlers
+      && window.webkit.messageHandlers.bridgeTest;
+    if (mh) mh.postMessage("ready");
+  </script>
+</body>
+</html>

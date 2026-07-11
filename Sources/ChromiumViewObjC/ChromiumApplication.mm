@@ -199,6 +199,14 @@ class _CEFApp : public CefApp, public CefBrowserProcessHandler {
 
 }  // namespace
 
+// Resolved root cache path (root_cache_path) captured at CefInitialize, so
+// per-profile request contexts (ChromiumDataStore.store(forIdentifier:)) can
+// nest their cache_path underneath it. Empty when no cache path was configured.
+static NSString* g_root_cache_path = nil;
+extern "C" NSString* _ChromiumResolvedRootCachePath(void) {
+  return g_root_cache_path;
+}
+
 @implementation ChromiumApplication
 
 + (int)runWithSetup:(CEFSetupBlock)setup {
@@ -224,6 +232,7 @@ class _CEFApp : public CefApp, public CefBrowserProcessHandler {
     if (config.cachePath) {
       CefString(&settings.root_cache_path)
           .FromString(config.cachePath.path.UTF8String);
+      g_root_cache_path = [config.cachePath.path copy];
     }
     g_setup_block = [setup copy];
     g_use_mock_keychain = config ? config.useMockKeychain : false;
