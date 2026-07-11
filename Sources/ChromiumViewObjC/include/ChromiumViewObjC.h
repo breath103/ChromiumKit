@@ -6,6 +6,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @class ChromiumView;
 @class ChromiumConfiguration;
+@class ChromiumDataStore;
 @class ChromiumDownload;
 @class ChromiumKeyEvent;
 @class ChromiumNavigationRequest;
@@ -229,6 +230,41 @@ NS_SWIFT_NAME(ChromiumNavigationRequest)
 - (instancetype)init NS_UNAVAILABLE;
 @end
 
+#pragma mark - Data isolation
+
+/// Encapsulates the storage backing a `ChromiumWebView` — cookies, cache,
+/// localStorage, IndexedDB and the rest — the ChromiumKit analogue of
+/// `WKWebsiteDataStore`. Pass one to `-initWithFrame:URL:dataStore:` to isolate
+/// a view's storage from other views. Backed by a CEF `CefRequestContext`:
+///   • `default` shares the process-global context (and its cookies, via
+///     `ChromiumCookieStore.global()`) — the analogue of
+///     `WKWebsiteDataStore.default()`.
+///   • `nonPersistent` is an in-memory context whose data is discarded when the
+///     process exits — the analogue of `WKWebsiteDataStore.nonPersistent()`.
+///   • `store(forIdentifier:)` is a persistent context isolated in its own
+///     subdirectory of the app's root cache path, keyed by `identifier` — the
+///     analogue of `WKWebsiteDataStore(forIdentifier:)`. Requires a configured
+///     `ChromiumConfiguration.cachePath` (root_cache_path) to persist; with none
+///     it degrades to an in-memory context.
+/// Views built with the SAME store instance share storage; different instances
+/// (including two `nonPersistent` stores) are isolated from one another.
+NS_SWIFT_NAME(ChromiumDataStore)
+@interface ChromiumDataStore : NSObject
+/// The process-global, persistent store shared by every default view.
++ (ChromiumDataStore*)defaultStore NS_SWIFT_NAME(default());
+/// A fresh in-memory store; its data never touches disk and is gone at exit.
++ (ChromiumDataStore*)nonPersistentStore NS_SWIFT_NAME(nonPersistent());
+/// A persistent store isolated under `identifier`, separate from the default
+/// store and from every other identifier.
++ (ChromiumDataStore*)storeForIdentifier:(NSString*)identifier
+    NS_SWIFT_NAME(store(forIdentifier:));
+/// YES if data written through this store survives a process restart (the
+/// `default` store, and `store(forIdentifier:)` with a configured cache path);
+/// NO for `nonPersistent` (and an identified store with no root cache path).
+@property (nonatomic, readonly, getter=isPersistent) BOOL persistent;
+- (instancetype)init NS_UNAVAILABLE;
+@end
+
 NS_SWIFT_NAME(ChromiumWebView)
 @interface ChromiumView : NSView
 
@@ -281,6 +317,11 @@ NS_SWIFT_NAME(ChromiumWebView)
 @property (nonatomic, copy, nullable) BOOL (^navigationDecisionHandler)(ChromiumNavigationRequest* request);
 
 - (instancetype)initWithFrame:(NSRect)frame URL:(nullable NSURL*)url NS_DESIGNATED_INITIALIZER;
+/// Build a view bound to a specific data store (cookies / cache / localStorage
+/// isolation). Passing `nil` is equivalent to `ChromiumDataStore.default`.
+- (instancetype)initWithFrame:(NSRect)frame URL:(nullable NSURL*)url
+                    dataStore:(nullable ChromiumDataStore*)dataStore
+    NS_SWIFT_NAME(init(frame:url:dataStore:));
 - (instancetype)initWithFrame:(NSRect)frame NS_UNAVAILABLE;
 - (instancetype)initWithCoder:(NSCoder*)c NS_UNAVAILABLE;
 

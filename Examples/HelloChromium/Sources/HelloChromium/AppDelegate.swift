@@ -41,6 +41,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configureContentBlockProofIfRequested(session)
         configureNavigationBlockProofIfRequested(session)
         configureZoomProofIfRequested(session)
+        configureDataIsolationProofIfRequested(session)
         runtime.reconcileLiveTabs() // start reacting to tab deletions
 
         window = NSWindow(
@@ -278,7 +279,56 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-        // Flush SwiftData's deferred autosave so the latest tab state reaches disk.
+    /// Per-view data-isolation proof (drives DataIsolationUITests). When
+    /// `HELLOCHROMIUM_ISOLATION_FIXTURE` points at an HTML file, give the seeded
+    /// "writer" tab and a second "reader" tab two DISTINCT non-persistent
+    /// `ChromiumDataStore`s, then run two phases over the `bridgeTest` channel:
+    /// the writer loads `?role=writer`, writes a marker into `localStorage`, and
+    /// posts `wrote`; on hearing that we select (wake) the reader at
+    /// `?role=reader`, which reads its OWN (isolated) `localStorage` and posts
+    /// `read:<value>`. An empty read proves the stores are isolated
+    /// (`isolation:isolated`); seeing the writer's marker would prove a leak
+    /// (`isolation:LEAKED`).
+    private func configureDataIsolationProofIfRequested(_ session: Session) {
+        guard let fixture = ProcessInfo.processInfo.environment["HELLOCHROMIUM_ISOLATION_FIXTURE"]
+        else { return }
+        let fixtureURL = URL(fileURLWithPath: fixture)
+        func roleURL(_ role: String) -> URL {
+            var comps = URLComponents(url: fixtureURL, resolvingAgainstBaseURL: false)
+            comps?.queryItems = [URLQueryItem(name: "role", value: role)]
+            return comps?.url ?? fixtureURL
+        }
+
+        let writerStore = ChromiumDataStore.nonPersistent()
+        let readerStore = ChromiumDataStore.nonPersistent()
+
+        guard let writerTab = session.orderedTabs.first else { return }
+        writerTab.url = roleURL("writer")
+
+        let nextIndex = (session.tabs.map(\.sortIndex).max() ?? -1) + 1
+        let readerTab = TabRecord(url: roleURL("reader"), sortIndex: nextIndex, session: session)
+        container.mainContext.insert(readerTab)
+
+        let writerID = writerTab.id
+        runtime.dataStoreProvider = { record in
+            record.id == writerID ? writerStore : readerStore
+        }
+        runtime.onBridgeMessage = { [weak self] body in
+            guard let self, let msg = body as? String else { return }
+            if msg == "wrote" {
+                // Writer done — waking the reader (its own isolated store) loads
+                // ?role=reader, which reports what IT sees in localStorage.
+                self.runtime.session.selectedTabID = readerTab.id
+            } else if msg.hasPrefix("read:") {
+                let value = String(msg.dropFirst("read:".count))
+                self.window.title = value == "EMPTY"
+                    ? "isolation:isolated"
+                    : "isolation:LEAKED(\(value))"
+            }
+        }
+    }
+
+    // Flush SwiftData's deferred autosave so the latest tab state reaches disk.
     func applicationWillTerminate(_: Notification) {
         try? container?.mainContext.save()
     }

@@ -7,9 +7,16 @@
 #include "include/cef_keyboard_handler.h"
 #include "include/cef_parser.h"
 #include "include/cef_request_handler.h"
+#include "include/cef_request_context.h"
 #include "include/cef_resource_request_handler.h"
 #include "include/wrapper/cef_helpers.h"
 #include <cmath>
+
+// Resolved root cache path (root_cache_path) captured by ChromiumApplication at
+// CefInitialize, so a per-profile ChromiumDataStore can nest its cache_path
+// under it — CEF requires each request context's cache_path be a child of
+// root_cache_path. Empty when no cache path was configured (fully in-memory).
+extern "C" NSString* _ChromiumResolvedRootCachePath(void);
 
 // Redeclare the public-readonly state-mirror properties as readwrite inside
 // the class so synthesized setters fire KVO automatically. Public callers
@@ -657,6 +664,88 @@ class _ChromiumClient : public CefClient,
 
 }  // namespace
 
+#pragma mark - ChromiumDataStore
+
+@interface ChromiumDataStore () {
+  // Lazily-created CEF request context backing this store. Nil for the default
+  // store (which uses CEF's process-global context, matching CreateBrowser's
+  // null request_context) and until first use for the others.
+  CefRefPtr<CefRequestContext> _context;
+  // Absolute on-disk cache path for a persistent isolated store, or nil for an
+  // in-memory (non-persistent) context.
+  NSString* _cachePath;
+  BOOL _isDefault;
+  BOOL _persistent;
+}
+- (instancetype)_initInternal;
+- (CefRefPtr<CefRequestContext>)_ensureRequestContext;
+@end
+
+@implementation ChromiumDataStore
+
++ (ChromiumDataStore*)defaultStore {
+  ChromiumDataStore* s = [[ChromiumDataStore alloc] _initInternal];
+  s->_isDefault = YES;
+  s->_persistent = YES;
+  return s;
+}
+
++ (ChromiumDataStore*)nonPersistentStore {
+  ChromiumDataStore* s = [[ChromiumDataStore alloc] _initInternal];
+  s->_isDefault = NO;
+  s->_cachePath = nil;  // empty cache_path => in-memory request context
+  s->_persistent = NO;
+  return s;
+}
+
++ (ChromiumDataStore*)storeForIdentifier:(NSString*)identifier {
+  ChromiumDataStore* s = [[ChromiumDataStore alloc] _initInternal];
+  s->_isDefault = NO;
+  NSString* root = _ChromiumResolvedRootCachePath();
+  if (root.length) {
+    // CEF requires a context cache_path be a child of root_cache_path. Reduce
+    // the identifier to a safe single path component.
+    NSCharacterSet* unsafe =
+        [[NSCharacterSet alphanumericCharacterSet] invertedSet];
+    NSString* safe = [[identifier componentsSeparatedByCharactersInSet:unsafe]
+        componentsJoinedByString:@"_"];
+    if (safe.length == 0) { safe = @"profile"; }
+    s->_cachePath = [[root stringByAppendingPathComponent:@"Profiles"]
+        stringByAppendingPathComponent:safe];
+    s->_persistent = YES;
+  } else {
+    // No root cache path configured — degrade to an in-memory context.
+    s->_cachePath = nil;
+    s->_persistent = NO;
+  }
+  return s;
+}
+
+- (instancetype)_initInternal {
+  return [super init];
+}
+
+- (BOOL)isPersistent {
+  return _persistent;
+}
+
+// The CEF request context for this store, created on first use on the main (CEF
+// UI) thread. Returns nullptr for the default store so CreateBrowser falls back
+// to the process-global context.
+- (CefRefPtr<CefRequestContext>)_ensureRequestContext {
+  if (_isDefault) { return nullptr; }
+  if (!_context) {
+    CefRequestContextSettings settings;
+    if (_cachePath.length) {
+      CefString(&settings.cache_path).FromString(_cachePath.UTF8String);
+    }
+    _context = CefRequestContext::CreateContext(settings, nullptr);
+  }
+  return _context;
+}
+
+@end
+
 @implementation ChromiumView {
   CefRefPtr<_ChromiumClient> _client;
   BOOL _browserCreated;
@@ -685,6 +774,9 @@ class _ChromiumClient : public CefClient,
   // getter is deterministic and the value survives a not-yet-attached
   // browser; pushed to CEF as a zoom LEVEL whenever a browser exists.
   CGFloat _zoomFactor;
+  // Data store providing this view's CefRequestContext (cookies / cache /
+  // localStorage isolation). Nil == the process-global (default) context.
+  ChromiumDataStore* _dataStore;
 }
 
 @synthesize URL = _URL;
@@ -702,6 +794,14 @@ class _ChromiumClient : public CefClient,
     _downloads = [NSMutableDictionary new];
     _zoomFactor = 1.0;
     self.wantsLayer = YES;
+  }
+  return self;
+}
+
+- (instancetype)initWithFrame:(NSRect)frame URL:(NSURL*)url
+                    dataStore:(ChromiumDataStore*)dataStore {
+  if ((self = [self initWithFrame:frame URL:url])) {
+    _dataStore = dataStore;
   }
   return self;
 }
@@ -823,8 +923,13 @@ class _ChromiumClient : public CefClient,
                 CefRect(0, 0, (int)b.size.width, (int)b.size.height));
   CefBrowserSettings bs;
   NSString* urlString = _URL.absoluteString ?: @"about:blank";
+  // Per-view data isolation: a data store vends its CefRequestContext; the
+  // default store (or no store) passes null so CEF uses the global context.
+  CefRefPtr<CefRequestContext> requestContext =
+      _dataStore ? [_dataStore _ensureRequestContext] : nullptr;
   CefBrowserHost::CreateBrowser(wi, _client.get(),
-                                [urlString UTF8String], bs, nullptr, nullptr);
+                                [urlString UTF8String], bs, nullptr,
+                                requestContext);
 }
 
 - (void)viewDidMoveToWindow {

@@ -68,6 +68,13 @@ final class TabRuntime: NSObject {
     /// cancelled via `OnBeforeBrowse`; normal runs leave it nil.
     @ObservationIgnored var onNavigationDecision: ((ChromiumNavigationRequest) -> Bool)?
 
+    /// Optional per-tab data-store provider. When set, `wake` builds each tab's
+    /// web view with the returned `ChromiumDataStore` (cookies / cache /
+    /// localStorage isolation) instead of the default global store. The
+    /// data-isolation UI test sets it to give two tabs two isolated stores;
+    /// normal runs leave it nil so every tab shares the default store.
+    @ObservationIgnored var dataStoreProvider: ((TabRecord) -> ChromiumDataStore?)?
+
     /// The live web view for a record, or nil if the tab is hibernated. Pure
     /// lookup — safe to call from a SwiftUI view body.
     func liveWebView(for record: TabRecord) -> ChromiumWebView? {
@@ -79,7 +86,13 @@ final class TabRuntime: NSObject {
     @discardableResult
     func wake(_ record: TabRecord) -> ChromiumWebView {
         if let existing = live[record.id] { return existing.webView }
-        return register(ChromiumWebView(frame: .zero, url: record.url), for: record)
+        let webView: ChromiumWebView =
+            if let store = dataStoreProvider?(record) {
+                ChromiumWebView(frame: .zero, url: record.url, dataStore: store)
+            } else {
+                ChromiumWebView(frame: .zero, url: record.url)
+            }
+        return register(webView, for: record)
     }
 
     /// Hibernate a tab: drop the live web view. The record keeps the last

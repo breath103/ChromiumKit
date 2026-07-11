@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>data-isolation fixture</title>
+</head>
+<body>
+<h1>data isolation</h1>
+<script>
+  // Role comes in via the URL query so the same fixture serves both sides of
+  // the proof. The "writer" writes a marker into localStorage; the "reader"
+  // reports what ITS OWN localStorage contains. Two views built with distinct
+  // (isolated) ChromiumDataStores must not see each other's storage — a reader
+  // that finds EMPTY proves isolation, one that finds the marker proves a leak.
+  // ChromiumKit injects window.webkit.messageHandlers.bridgeTest into every
+  // document; it can land a beat after load, so poll until it exists, post once.
+  var KEY = 'mirror_isolation_marker';
+  var role = new URLSearchParams(window.location.search).get('role');
+  var posted = false;
+  function handler() {
+    return window.webkit
+      && window.webkit.messageHandlers
+      && window.webkit.messageHandlers.bridgeTest;
+  }
+  function tick() {
+    if (posted) return;
+    var mh = handler();
+    if (!mh) return;
+    posted = true;
+    try {
+      if (role === 'writer') {
+        localStorage.setItem(KEY, 'SECRET');
+        mh.postMessage('wrote');
+      } else {
+        var v = localStorage.getItem(KEY);
+        mh.postMessage('read:' + (v === null ? 'EMPTY' : v));
+      }
+    } catch (e) {
+      mh.postMessage('read:ERROR');
+    }
+  }
+  var timer = setInterval(function () { tick(); if (posted) clearInterval(timer); }, 100);
+  tick();
+</script>
+</body>
+</html>
