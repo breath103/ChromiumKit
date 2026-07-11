@@ -68,6 +68,12 @@ final class TabRuntime: NSObject {
     /// cancelled via `OnBeforeBrowse`; normal runs leave it nil.
     @ObservationIgnored var onNavigationDecision: ((ChromiumNavigationRequest) -> Bool)?
 
+    /// Optional find-in-page result hook. When set, every live web view installs
+    /// this closure as its `findResultHandler`; results from a `findText(...)`
+    /// search are delivered here on the main thread. The find UI test sets it to
+    /// prove `CefBrowserHost::Find` match counts surface; normal runs leave it nil.
+    @ObservationIgnored var onFindResult: ((ChromiumFindResult) -> Void)?
+
     /// Optional per-tab data-store provider. When set, `wake` builds each tab's
     /// web view with the returned `ChromiumDataStore` (cookies / cache /
     /// localStorage isolation) instead of the default global store. The
@@ -172,6 +178,10 @@ final class TabRuntime: NSObject {
         if let onNavigationDecision {
             // Called on the main thread before a navigation commits.
             webView.navigationDecisionHandler = { request in onNavigationDecision(request) }
+        }
+        if let onFindResult {
+            // Called on the main thread as CefBrowserHost::Find reports matches.
+            webView.findResultHandler = { result in onFindResult(result) }
         }
         live[record.id] = LiveTab(webView: webView, record: record)
         return webView

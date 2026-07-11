@@ -84,6 +84,28 @@ extern "C" NSString* _ChromiumResolvedRootCachePath(void);
 }
 @end
 
+// A find-in-page result handed to `ChromiumView.findResultHandler` from
+// OnFindResult. All fields set at construction and immutable; built on the main
+// (CEF UI) thread from a CefFindHandler callback.
+@interface ChromiumFindResult ()
+- (instancetype)_initWithCount:(NSInteger)count
+            activeMatchOrdinal:(NSInteger)activeMatchOrdinal
+                   finalUpdate:(BOOL)finalUpdate;
+@end
+
+@implementation ChromiumFindResult
+- (instancetype)_initWithCount:(NSInteger)count
+            activeMatchOrdinal:(NSInteger)activeMatchOrdinal
+                   finalUpdate:(BOOL)finalUpdate {
+  if ((self = [super init])) {
+    _count = count;
+    _activeMatchOrdinal = activeMatchOrdinal;
+    _finalUpdate = finalUpdate;
+  }
+  return self;
+}
+@end
+
 // A live handle to one CEF download. Created in OnBeforeDownload, updated on
 // each OnDownloadUpdated. Progress/lifecycle fields are declared readwrite here
 // so their synthesized setters fire KVO (public header exposes them readonly).
@@ -353,7 +375,8 @@ class _ChromiumClient : public CefClient,
                    public CefRequestHandler,
                    public CefResourceRequestHandler,
                    public CefDownloadHandler,
-                   public CefKeyboardHandler {
+                   public CefKeyboardHandler,
+                   public CefFindHandler {
  public:
   _ChromiumClient() = default;
   explicit _ChromiumClient(ChromiumView* owner) : owner_(owner) {}
@@ -377,6 +400,7 @@ class _ChromiumClient : public CefClient,
   }
   CefRefPtr<CefDownloadHandler> GetDownloadHandler() override { return this; }
   CefRefPtr<CefKeyboardHandler> GetKeyboardHandler() override { return this; }
+  CefRefPtr<CefFindHandler> GetFindHandler() override { return this; }
 
   // Called on the CEF UI thread (== main thread here) before a navigation
   // commits — the CEF analogue of WKWebView's decidePolicyFor navigationAction.
@@ -440,6 +464,28 @@ class _ChromiumClient : public CefClient,
     BOOL (^handler)(ChromiumKeyEvent*) = view.keyboardHandler;
     if (!handler) return false;
     return handler(keyEventFromCef(event)) ? true : false;
+  }
+
+  // Reports find-in-page results for a CefBrowserHost::Find search. Called on
+  // the CEF UI thread (== main thread here); hop to the main queue and hand the
+  // result to the Swift findResultHandler, matching the other display callbacks.
+  // A nil view or nil handler drops the result.
+  void OnFindResult(CefRefPtr<CefBrowser> /*browser*/,
+                    int /*identifier*/,
+                    int count,
+                    const CefRect& /*selectionRect*/,
+                    int activeMatchOrdinal,
+                    bool finalUpdate) override {
+    __weak ChromiumView* o = owner_;
+    dispatch_async(dispatch_get_main_queue(), ^{
+      ChromiumView* view = o;
+      if (!view) return;
+      void (^handler)(ChromiumFindResult*) = view.findResultHandler;
+      if (!handler) return;
+      handler([[ChromiumFindResult alloc] _initWithCount:count
+                                      activeMatchOrdinal:activeMatchOrdinal
+                                             finalUpdate:finalUpdate ? YES : NO]);
+    });
   }
 
   // A download is starting. Snapshot the item's fields on the UI thread, then
@@ -1046,6 +1092,21 @@ static const double kChromiumZoomTextSizeMultiplierRatio = 1.2;
       ? std::log((double)_zoomFactor) / std::log(kChromiumZoomTextSizeMultiplierRatio)
       : 0.0;
   b->GetHost()->SetZoomLevel(level);
+}
+
+#pragma mark - Find
+
+- (void)findText:(NSString*)text
+         forward:(BOOL)forward
+       matchCase:(BOOL)matchCase
+        findNext:(BOOL)findNext {
+  if (auto b = [self _browser]) {
+    b->GetHost()->Find([text UTF8String], forward, matchCase, findNext);
+  }
+}
+
+- (void)stopFinding:(BOOL)clearSelection {
+  if (auto b = [self _browser]) b->GetHost()->StopFinding(clearSelection);
 }
 
 #pragma mark - DevTools

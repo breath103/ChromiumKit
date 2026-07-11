@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         configureNavigationBlockProofIfRequested(session)
         configureZoomProofIfRequested(session)
         configureDataIsolationProofIfRequested(session)
+        configureFindProofIfRequested(session)
         runtime.reconcileLiveTabs() // start reacting to tab deletions
 
         window = NSWindow(
@@ -254,6 +255,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// title — page zoom multiplies `devicePixelRatio`, so the stamp proves
     /// `CefBrowserHost::SetZoomLevel` took effect page-side. The ratio (not the
     /// absolute DPR) keeps it independent of the display's own backing scale.
+    /// When `HELLOCHROMIUM_FIND_FIXTURE` points at an HTML file, load it and,
+    /// once the page signals ready (via the bridge), run a find-in-page search
+    /// for "banana"; the final `OnFindResult` stamps the match count into the
+    /// window title as `find:<count>` (`find:3` for the fixture's three matches),
+    /// proving `CefBrowserHost::Find` + `CefFindHandler` round-trip to Swift.
+    private func configureFindProofIfRequested(_ session: Session) {
+        guard let fixture = ProcessInfo.processInfo.environment["HELLOCHROMIUM_FIND_FIXTURE"]
+        else { return }
+        var searchStarted = false
+        runtime.onBridgeMessage = { [weak self] _ in
+            guard let self, !searchStarted else { return }
+            searchStarted = true
+            if let tab = session.orderedTabs.first,
+               let webView = self.runtime.liveWebView(for: tab) {
+                webView.findText("banana", forward: true, matchCase: false, findNext: false)
+            }
+        }
+        runtime.onFindResult = { [weak self] result in
+            guard result.isFinalUpdate else { return }
+            self?.window.title = "find:\(result.count)"
+        }
+        if let tab = session.orderedTabs.first {
+            tab.url = URL(fileURLWithPath: fixture)
+        }
+    }
+
     private func configureZoomProofIfRequested(_ session: Session) {
         guard let fixture = ProcessInfo.processInfo.environment["HELLOCHROMIUM_ZOOM_FIXTURE"]
         else { return }

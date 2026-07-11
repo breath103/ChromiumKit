@@ -230,6 +230,25 @@ NS_SWIFT_NAME(ChromiumNavigationRequest)
 - (instancetype)init NS_UNAVAILABLE;
 @end
 
+/// The result of a find-in-page search, reported by CEF's
+/// `CefFindHandler::OnFindResult` after a `findText(...)` request — the analogue
+/// of WebKit's `_WKFindDelegate` match callbacks. A single `findText` call can
+/// produce several results as matches are counted incrementally; observe
+/// `finalUpdate` for the last one. Built on the main (CEF UI) thread and
+/// immutable.
+NS_SWIFT_NAME(ChromiumFindResult)
+@interface ChromiumFindResult : NSObject
+/// The total number of matches currently identified on the page.
+@property (nonatomic, readonly) NSInteger count;
+/// The 1-based position of the active (highlighted) match within `count`, or 0
+/// when there is no active match.
+@property (nonatomic, readonly) NSInteger activeMatchOrdinal;
+/// YES when this is the last result for the current search (match counting has
+/// finished); NO for an incremental update still being tallied.
+@property (nonatomic, readonly, getter=isFinalUpdate) BOOL finalUpdate;
+- (instancetype)init NS_UNAVAILABLE;
+@end
+
 #pragma mark - Data isolation
 
 /// Encapsulates the storage backing a `ChromiumWebView` — cookies, cache,
@@ -363,6 +382,35 @@ NS_SWIFT_NAME(ChromiumWebView)
 /// applied once CEF attaches; the getter reports the last value set (default
 /// `1.0`).
 @property (nonatomic, assign) CGFloat zoomFactor;
+
+#pragma mark - Find
+
+/// Invoked to report find-in-page results for a `findText(...)` search — CEF's
+/// `CefFindHandler::OnFindResult`, the analogue of WKWebView's `_WKFindDelegate`
+/// match callbacks. A single search reports one or more results as matches are
+/// counted; observe `ChromiumFindResult.finalUpdate` for the last one. Called on
+/// the MAIN THREAD. When nil, results are dropped.
+@property (nonatomic, copy, nullable) void (^findResultHandler)(ChromiumFindResult* result);
+
+/// Search the page for `text`, highlighting matches — CEF's
+/// `CefBrowserHost::Find`, the analogue of WKWebView's `_find(_:options:...)`.
+/// `forward` searches forward (vs. backward) from the current match; `matchCase`
+/// makes the search case-sensitive. `findNext` is NO for a fresh search and YES
+/// to advance to the next/previous match of the SAME `text` (CEF restarts the
+/// search automatically when `text` or `matchCase` change). An empty `text`
+/// stops the search. Results arrive via `findResultHandler`. No-op until the
+/// browser is created.
+- (void)findText:(NSString*)text
+         forward:(BOOL)forward
+       matchCase:(BOOL)matchCase
+        findNext:(BOOL)findNext
+    NS_SWIFT_NAME(findText(_:forward:matchCase:findNext:));
+
+/// Stop the active find-in-page search — CEF's `CefBrowserHost::StopFinding`,
+/// the analogue of `_hideFindUI()`. `clearSelection` YES clears the highlighted
+/// match selection; NO keeps it. No-op until the browser is created.
+- (void)stopFinding:(BOOL)clearSelection NS_SWIFT_NAME(stopFinding(clearSelection:));
+
 
 /// JS eval. `completion` is called on the main thread. `result` is a Foundation
 /// JSON value (NSString / NSNumber / NSDictionary / NSArray / NSNull) unwrapped
