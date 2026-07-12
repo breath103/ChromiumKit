@@ -113,12 +113,52 @@ else
   done
 fi
 
-if [[ -n "${XCODE_PRODUCT_BUILD_VERSION:-}" ]]; then
-  echo "[ChromiumKit]  → framework signing handled by Xcode, skipping"
+# Pick the codesign timestamp flag based on the identity:
+#   - a real Developer ID identity needs a SECURE timestamp (`--timestamp`),
+#     which Apple notarization requires — this makes a network round-trip to
+#     Apple's timestamp server.
+#   - the ad-hoc identity ("-", local dev) can't get a secure timestamp anyway,
+#     so use `--timestamp=none` to avoid the network round-trip and any
+#     offline/CI flakiness.
+if [[ "$SIGN_ID" == "-" ]]; then
+  TIMESTAMP_FLAG="--timestamp=none"
 else
-  echo "[ChromiumKit]  → signing framework (identity: $SIGN_ID)"
-  codesign --force --sign "$SIGN_ID" --timestamp=none \
-    "$FRAMEWORKS/Chromium Embedded Framework.framework"
+  TIMESTAMP_FLAG="--timestamp"
+fi
+
+# Sign the framework's nested standalone dylibs.
+#
+# The CEF framework ships prebuilt Mach-O dylibs under Versions/A/Libraries
+# (libEGL, libGLESv2, libvk_swiftshader, libcef_sandbox). These are NOT signed
+# as part of signing the framework BUNDLE — codesign only seals the bundle's
+# main binary + Resources, not arbitrary nested dylibs — so Apple notarization
+# REJECTS them ("not signed with a valid Developer ID certificate" / "signature
+# does not include a secure timestamp"). We must sign them ourselves.
+#
+# This runs REGARDLESS of the Xcode branch: Xcode signs the framework bundle and
+# the host, but never reaches inside to sign these nested dylibs. We sign them
+# inside-out — each dylib FIRST, before the enclosing framework bundle is sealed
+# (by Xcode below, or by the standalone branch that follows) — so the bundle's
+# seal covers valid dylib signatures.
+#
+# Glob *.dylib (don't hardcode names) so this stays correct if CEF adds/removes
+# libraries in a future version.
+FRAMEWORK="$FRAMEWORKS/Chromium Embedded Framework.framework"
+LIBRARIES="$FRAMEWORK/Versions/A/Libraries"
+if [[ -d "$LIBRARIES" ]]; then
+  echo "[ChromiumKit]  → signing framework nested dylibs (identity: $SIGN_ID, hardened runtime)"
+  for dylib in "$LIBRARIES/"*.dylib; do
+    [[ -e "$dylib" ]] || continue  # glob matched nothing
+    codesign --force --sign "$SIGN_ID" --options runtime "$TIMESTAMP_FLAG" "$dylib"
+  done
+fi
+
+if [[ -n "${XCODE_PRODUCT_BUILD_VERSION:-}" ]]; then
+  echo "[ChromiumKit]  → framework bundle signing handled by Xcode, skipping"
+else
+  echo "[ChromiumKit]  → signing framework bundle (identity: $SIGN_ID)"
+  codesign --force --sign "$SIGN_ID" --options runtime "$TIMESTAMP_FLAG" \
+    "$FRAMEWORK"
 fi
 
 # Skip host signing when running under Xcode — Xcode signs the host app
