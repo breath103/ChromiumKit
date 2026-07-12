@@ -16,6 +16,10 @@
 #
 # Optional env:
 #   EXPANDED_CODE_SIGN_IDENTITY — Xcode-provided signing identity (default: -)
+#   CHROMIUMKIT_HELPER_ENTITLEMENTS — path to the helper hardened-runtime
+#                            entitlements plist applied when re-signing helpers
+#                            with a real Developer ID identity (default: the
+#                            package's Resources/entitlements/CEFKit.helper.entitlements)
 #
 # Standalone usage:
 #   BUILT_PRODUCTS_DIR=out PRODUCT_NAME=Demo PRODUCT_BUNDLE_IDENTIFIER=foo.demo \
@@ -32,6 +36,8 @@ set -euo pipefail
 : "${CHROMIUMKIT_HELPER_PLIST:?required}"
 
 SIGN_ID="${EXPANDED_CODE_SIGN_IDENTITY:--}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HELPER_ENTITLEMENTS="${CHROMIUMKIT_HELPER_ENTITLEMENTS:-$SCRIPT_DIR/../Resources/entitlements/CEFKit.helper.entitlements}"
 APP="$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app"
 FRAMEWORKS="$APP/Contents/Frameworks"
 
@@ -78,6 +84,35 @@ embed_helper " (Renderer)" ".renderer"
 embed_helper " (Plugin)"   ".plugin"
 embed_helper " (Alerts)"   ".alerts"
 
+# Helper bundle signing.
+#
+# Dev builds sign ad-hoc ("-"): we MUST leave the helper executables'
+# linker-signed signatures untouched — Chromium's IPC handshake validates them
+# byte-for-byte and a naive ad-hoc re-sign trips a CHECK inside
+# cef_execute_process.
+#
+# For a REAL Developer ID identity we DO re-sign each helper .app with the
+# Hardened Runtime + the helper entitlements. Apple notarization REJECTS the
+# linker-signed helpers (un-notarizable, no secure timestamp, no runtime), so
+# a shipping/notarized build needs proper same-team signatures — exactly what
+# Chrome/Electron/Slack ship. Same-team re-signing keeps the IPC handshake valid
+# because every process now shares one Team ID. Sign inside-out: each helper .app
+# here → framework → (host signed last, by Xcode or the standalone branch below),
+# so the enclosing seals include these signatures.
+if [[ "$SIGN_ID" == "-" ]]; then
+  echo "[ChromiumKit]  → ad-hoc identity: leaving helper linker-signatures intact"
+else
+  [[ -f "$HELPER_ENTITLEMENTS" ]] || {
+    echo "error: helper entitlements not found at $HELPER_ENTITLEMENTS" >&2; exit 1;
+  }
+  echo "[ChromiumKit]  → signing 5 helpers (identity: $SIGN_ID, hardened runtime)"
+  echo "[ChromiumKit]     entitlements: $HELPER_ENTITLEMENTS"
+  for helper in "$FRAMEWORKS/"*Helper*.app; do
+    codesign --force --sign "$SIGN_ID" --options runtime --timestamp \
+      --entitlements "$HELPER_ENTITLEMENTS" "$helper"
+  done
+fi
+
 if [[ -n "${XCODE_PRODUCT_BUILD_VERSION:-}" ]]; then
   echo "[ChromiumKit]  → framework signing handled by Xcode, skipping"
 else
@@ -85,11 +120,6 @@ else
   codesign --force --sign "$SIGN_ID" --timestamp=none \
     "$FRAMEWORKS/Chromium Embedded Framework.framework"
 fi
-
-# NB: do NOT codesign helper bundles. Their executables are linker-signed at
-# build time and Chromium's IPC handshake validates that exact signature.
-# Re-codesigning the bundle wraps the binary in a new sig and breaks helpers
-# with a CHECK fail in cef_execute_process.
 
 # Skip host signing when running under Xcode — Xcode signs the host app
 # itself as the final build step, after this script. Doing it here too fails

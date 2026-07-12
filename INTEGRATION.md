@@ -134,8 +134,8 @@ into your project and point your targets at them:
 
 | Template | Apply to |
 |---|---|
-| `Resources/entitlements/ChromiumKit.host.entitlements` | Your host app target (`CODE_SIGN_ENTITLEMENTS` build setting) |
-| `Resources/entitlements/ChromiumKit.helper.entitlements` | Your helper executable target |
+| `Resources/entitlements/CEFKit.host.entitlements` | Your host app target (`CODE_SIGN_ENTITLEMENTS` build setting) |
+| `Resources/entitlements/CEFKit.helper.entitlements` | Your helper executable target |
 
 Both files set:
 
@@ -156,25 +156,24 @@ supported.
 
 ### Helper bundle signing under hardened runtime
 
-The `embed-chromiumkit.sh` script intentionally does **not** re-sign helper
-bundles (their linker-signed signatures are what Chromium's IPC handshake
-validates byte-for-byte in dev builds). For Developer ID + Hardened Runtime
-production builds you typically *do* need to re-sign helpers with your
-identity AND apply the helper entitlements file. This re-sign must happen
-*after* `embed-chromiumkit.sh` runs but *before* Xcode signs the host. If you
-need this in your build, add a second Run Script Phase after the ChromiumKit
-one:
+`embed-chromiumkit.sh` signs the 5 helper `.app` bundles for you **when a real
+signing identity is in play**. It keys off `EXPANDED_CODE_SIGN_IDENTITY`:
 
-```sh
-HOST_BUNDLE_ID="$PRODUCT_BUNDLE_IDENTIFIER"
-ENT="$SRCROOT/path/to/ChromiumKit.helper.entitlements"
-for h in "$BUILT_PRODUCTS_DIR/$PRODUCT_NAME.app/Contents/Frameworks/"*Helper*.app; do
-  codesign --force --sign "$EXPANDED_CODE_SIGN_IDENTITY" \
-    --entitlements "$ENT" --timestamp --options runtime "$h"
-done
-```
+- **Ad-hoc dev builds** (identity `-`): helpers are left **linker-signed** and
+  untouched — Chromium's IPC handshake validates those signatures byte-for-byte
+  and a naive ad-hoc re-sign trips a `CHECK` inside `cef_execute_process`.
+- **Developer ID builds**: each helper is re-signed with your identity, the
+  Hardened Runtime (`--options runtime`), a secure `--timestamp`, and the helper
+  entitlements. Apple notarization rejects the un-notarizable linker-signed
+  helpers, so a shipping build needs these proper same-team signatures — exactly
+  what Chrome/Electron/Slack ship. Same-team re-signing keeps the IPC handshake
+  valid because every process shares one Team ID.
 
-This pattern works in production (Slack, Discord, Notion all ship this way).
+The entitlements file defaults to the package's
+`Resources/entitlements/CEFKit.helper.entitlements`; override it by exporting
+`CHROMIUMKIT_HELPER_ENTITLEMENTS` before the script runs. You do **not** need a
+second Run Script Phase for helper signing.
+
 Verify with `codesign --verify --deep --strict --verbose=4 YourApp.app` and
 test on a Mac without your dev cert installed before submitting for
 notarization.
@@ -182,7 +181,7 @@ notarization.
 ### Notarization checklist
 
 1. Apply both entitlements templates (host + helpers)
-2. Codesign helpers with your Developer ID + helper entitlements (Run Script above)
+2. `embed-chromiumkit.sh` codesigns the helpers with your Developer ID + helper entitlements automatically (real identity only)
 3. Let Xcode handle the host signing (uses host entitlements via `CODE_SIGN_ENTITLEMENTS`)
 4. Archive (`xcodebuild archive ...`)
 5. `xcrun notarytool submit YourApp.zip --keychain-profile <profile> --wait`
