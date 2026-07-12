@@ -153,13 +153,25 @@ if [[ -d "$LIBRARIES" ]]; then
   done
 fi
 
-if [[ -n "${XCODE_PRODUCT_BUILD_VERSION:-}" ]]; then
-  echo "[ChromiumKit]  → framework bundle signing handled by Xcode, skipping"
-else
-  echo "[ChromiumKit]  → signing framework bundle (identity: $SIGN_ID)"
-  codesign --force --sign "$SIGN_ID" --options runtime "$TIMESTAMP_FLAG" \
-    "$FRAMEWORK"
-fi
+# Sign the framework BUNDLE — regardless of the Xcode branch, and AFTER the
+# nested dylibs above.
+#
+# This must run under Xcode too. Under Xcode the framework is auto-embedded and
+# signed on copy, but the nested-dylib signing above reseals files *inside* the
+# bundle, which BREAKS Xcode's on-copy seal: the framework's main binary (and
+# the enclosing host, whose seal covers this framework) then fail notarization
+# with "The signature of the binary is invalid." Re-signing the bundle here with
+# --force replaces Xcode's stale on-copy signature and reseals the (now-signed)
+# nested dylibs in one shot, restoring a valid seal.
+#
+# Signing the .framework bundle path signs its main binary AND reseals the
+# nested Libraries/*.dylib together — do NOT sign the main binary separately.
+#
+# Inside-out order: nested dylibs (above) → framework bundle (here) → helpers
+# (above) → host (Xcode last, or the standalone branch below).
+echo "[ChromiumKit]  → signing framework bundle (identity: $SIGN_ID)"
+codesign --force --sign "$SIGN_ID" --options runtime "$TIMESTAMP_FLAG" \
+  "$FRAMEWORK"
 
 # Skip host signing when running under Xcode — Xcode signs the host app
 # itself as the final build step, after this script. Doing it here too fails
