@@ -415,8 +415,17 @@ NS_SWIFT_NAME(ChromiumWebView)
 /// JS eval. `completion` is called on the main thread. `result` is a Foundation
 /// JSON value (NSString / NSNumber / NSDictionary / NSArray / NSNull) unwrapped
 /// from the DevTools Protocol's `RemoteObject`.
+///
+/// `result` is `_Nullable_result` — NOT plain `_Nullable` — because the
+/// completion legitimately fires `(nil, nil)` when the script evaluates to
+/// `undefined` (any fire-and-forget statement). Without that annotation,
+/// Swift's auto-generated `async` thunk imports the return as NON-optional
+/// `Any` and force-unwraps it, so `(nil, nil)` traps
+/// ("Unexpectedly found nil while implicitly unwrapping an Optional value")
+/// on CrBrowserMain — this crashed the host app on every page that ran such a
+/// script (Mirror preview 1997–1999, reproduced + fixed 2026-07-13).
 - (void)evaluateJavaScript:(NSString*)script
-                completion:(void (^_Nullable)(id _Nullable result, NSError* _Nullable error))completion
+                completion:(void (^_Nullable)(id _Nullable_result result, NSError* _Nullable error))completion
     NS_SWIFT_NAME(evaluateJavaScript(_:completion:));
 
 #pragma mark - JS → native message handlers
