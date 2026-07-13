@@ -22,6 +22,7 @@
 		3FF7BA68CAD5DA2D87BD2113 /* FaviconView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 025FF931F7B55DC5EA53CB54 /* FaviconView.swift */; };
 		446F52DF19C54D2E9F785E9F /* ChromiumKitHelper in Frameworks */ = {isa = PBXBuildFile; productRef = E0F832576918A7FD07E65BE6 /* ChromiumKitHelper */; };
 		4C7B005FA0E1914D19A66E9D /* ZoomUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2271CEC7EDCDED20A7047564 /* ZoomUITests.swift */; };
+		51DBDABB5EE57785EFA91541 /* TerminationContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72D85E4C97829BC8604652EF /* TerminationContractTests.swift */; };
 		5843091843E63ADCF5001796 /* isolation.html in Resources */ = {isa = PBXBuildFile; fileRef = 834DE696B00A59A27DA1AAC0 /* isolation.html */; };
 		5F39B64D954472C0E5CA36AA /* DocumentStartUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A90A7055F48C1AA416337437 /* DocumentStartUITests.swift */; };
 		5F5AFF0CF6D6BF46CFBAC90A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1C5EC6E298E46D61258BD5DF /* ContentView.swift */; };
@@ -99,6 +100,7 @@
 		603C6911CE638C8993C364B0 /* KeyboardUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardUITests.swift; sourceTree = "<group>"; };
 		66B5F79F7A11BA0D22EEBACE /* CloseTabUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloseTabUITests.swift; sourceTree = "<group>"; };
 		6BECFC2C56E8CF9CFF4CFCBD /* HibernateTabUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HibernateTabUITests.swift; sourceTree = "<group>"; };
+		72D85E4C97829BC8604652EF /* TerminationContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminationContractTests.swift; sourceTree = "<group>"; };
 		7752C1846282F40BAA4FCC47 /* ChromiumConfigurationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChromiumConfigurationTests.swift; sourceTree = "<group>"; };
 		834DE696B00A59A27DA1AAC0 /* isolation.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = isolation.html; sourceTree = "<group>"; };
 		881F558F15D54F2A41B899C4 /* Session.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Session.swift; sourceTree = "<group>"; };
@@ -199,6 +201,7 @@
 				B13CE582A3A8C0675233A14D /* ChromiumWebViewLifecycleTests.swift */,
 				0325FC5EFECDA6F6C44308E8 /* SessionPersistenceTests.swift */,
 				01D43F9C9B64F414197C73A9 /* TabRuntimeTests.swift */,
+				72D85E4C97829BC8604652EF /* TerminationContractTests.swift */,
 			);
 			path = HelloChromiumUnitTests;
 			sourceTree = "<group>";
@@ -432,11 +435,21 @@
 			inputFileListPaths = (
 			);
 			inputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/Chromium Embedded Framework.framework",
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A",
+				"$(BUILT_PRODUCTS_DIR)/HelloChromiumHelper",
+				"$(SRCROOT)/../../scripts/embed-chromiumkit.sh",
+				"$(SRCROOT)/../../scripts/helper.plist.in",
 			);
 			name = "[ChromiumKit] Embed framework + helpers";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/$(PRODUCT_NAME) Helper.app/Contents/MacOS/$(PRODUCT_NAME) Helper",
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/$(PRODUCT_NAME) Helper (GPU).app/Contents/MacOS/$(PRODUCT_NAME) Helper (GPU)",
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/$(PRODUCT_NAME) Helper (Renderer).app/Contents/MacOS/$(PRODUCT_NAME) Helper (Renderer)",
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/$(PRODUCT_NAME) Helper (Plugin).app/Contents/MacOS/$(PRODUCT_NAME) Helper (Plugin)",
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/$(PRODUCT_NAME) Helper (Alerts).app/Contents/MacOS/$(PRODUCT_NAME) Helper (Alerts)",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
@@ -483,6 +496,7 @@
 				881102DFE6B909FA0C50F735 /* ChromiumWebViewLifecycleTests.swift in Sources */,
 				145A11B761BFF5525B60E20F /* SessionPersistenceTests.swift in Sources */,
 				FD51A6A8C643F14C62410446 /* TabRuntimeTests.swift in Sources */,
+				51DBDABB5EE57785EFA91541 /* TerminationContractTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -17,6 +17,7 @@ static bool g_external_message_pump = false;
 
 @interface _CEFNSApplication : NSApplication <CefAppProtocol> {
   BOOL handlingSendEvent_;
+  BOOL cefTerminationDeferred_;
 }
 @end
 @implementation _CEFNSApplication
@@ -26,12 +27,14 @@ static bool g_external_message_pump = false;
   CefScopedSendingEvent s;
   [super sendEvent:e];
 }
-- (void)terminate:(id)sender {
+
+// Unwind CEF so the process can exit: stop the host-owned `[NSApp run]` loop (so
+// `runWithConfiguration:` returns and calls `CefShutdown()`), or in the legacy
+// path quit CEF's own loop.
+- (void)_cefUnwindRunLoop:(id)sender {
   if (g_external_message_pump) {
-    // The host owns the AppKit loop (`[NSApp run]`); `CefQuitMessageLoop()`
-    // would NOT stop it. Stop the AppKit loop so `[NSApp run]` returns and
-    // `CefShutdown()` can run. `-stop:` only takes effect after the loop
-    // processes one more event, so post a dummy event to wake it promptly.
+    // `-stop:` only takes effect after the loop processes one more event, so post
+    // a dummy event to wake it promptly.
     [NSApp stop:sender];
     NSEvent* wake = [NSEvent otherEventWithType:NSEventTypeApplicationDefined
                                        location:NSZeroPoint
@@ -46,6 +49,65 @@ static bool g_external_message_pump = false;
   } else {
     CefQuitMessageLoop();
   }
+}
+
+// NSApplication's default `-terminate:` runs the delegate termination contract
+// (applicationShouldTerminate: → NSApplicationWillTerminate → actually quit). We
+// override to unwind CEF instead of taking AppKit's default exit path — but we
+// MUST still run that contract. Skipping it (the previous implementation just
+// unwound the loop) meant `applicationShouldTerminate:` NEVER fired on the CEF
+// build, so a host app's quit hooks there — auto-update install + relaunch,
+// analytics flush, session teardown — were silently dropped. This preserves them.
+- (void)terminate:(id)sender {
+  id<NSApplicationDelegate> delegate = self.delegate;
+  NSApplicationTerminateReply reply = NSTerminateNow;
+  BOOL delegateResponds =
+      [delegate respondsToSelector:@selector(applicationShouldTerminate:)];
+  if (delegateResponds) {
+    reply = [delegate applicationShouldTerminate:self];
+  }
+  NSLog(@"[ChromiumKit] terminate: delegateResponds=%d reply=%ld",
+        delegateResponds, (long)reply);
+
+  switch (reply) {
+    case NSTerminateCancel:
+      NSLog(@"[ChromiumKit] terminate: cancelled by delegate, no unwind");
+      return;
+    case NSTerminateLater:
+      // The delegate will call `-replyToApplicationShouldTerminate:` when its
+      // async teardown is done; unwind there.
+      NSLog(@"[ChromiumKit] terminate: deferred (NSTerminateLater), awaiting "
+            @"replyToApplicationShouldTerminate:");
+      cefTerminationDeferred_ = YES;
+      return;
+    case NSTerminateNow:
+    default:
+      NSLog(@"[ChromiumKit] terminate: NSTerminateNow, posting willTerminate + "
+            @"unwinding run loop");
+      [[NSNotificationCenter defaultCenter]
+          postNotificationName:NSApplicationWillTerminateNotification
+                        object:self];
+      [self _cefUnwindRunLoop:sender];
+      return;
+  }
+}
+
+- (void)replyToApplicationShouldTerminate:(BOOL)shouldTerminate {
+  NSLog(@"[ChromiumKit] replyToApplicationShouldTerminate:%d deferred=%d",
+        shouldTerminate, cefTerminationDeferred_);
+  if (cefTerminationDeferred_) {
+    cefTerminationDeferred_ = NO;
+    if (shouldTerminate) {
+      NSLog(@"[ChromiumKit] replyToApplicationShouldTerminate: posting "
+            @"willTerminate + unwinding run loop");
+      [[NSNotificationCenter defaultCenter]
+          postNotificationName:NSApplicationWillTerminateNotification
+                        object:self];
+      [self _cefUnwindRunLoop:nil];
+    }
+    return;
+  }
+  [super replyToApplicationShouldTerminate:shouldTerminate];
 }
 @end
 

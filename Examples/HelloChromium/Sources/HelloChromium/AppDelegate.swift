@@ -118,7 +118,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             cookie.domain = "example.com"
             cookie.path = "/"
             store.setCookie(cookie, for: URL(string: "https://example.com/")!) { [weak self] success in
-                guard success else { self?.window.title = "cookie:SETFAILED"; return }
+                guard success else { self?.window.title = "cookie:SETFAILED"
+                    return
+                }
                 store.getAllCookies { cookies in
                     let match = cookies.first { $0.name == "ckproof" }
                     self?.window.title = "cookie:\(match?.value ?? "MISSING")"
@@ -186,9 +188,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard event.modifierFlags.contains(.command) else { return false }
             let shortcut: String? =
                 switch event.charactersIgnoringModifiers {
-                    case "f": "searchInPage"
-                    case "p": "printPage"
-                    default: nil
+                case "f": "searchInPage"
+                case "p": "printPage"
+                default: nil
                 }
             guard let shortcut else { return false }
             self?.window.title = "keyboard:\(shortcut)"
@@ -268,7 +270,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let self, !searchStarted else { return }
             searchStarted = true
             if let tab = session.orderedTabs.first,
-               let webView = self.runtime.liveWebView(for: tab) {
+               let webView = runtime.liveWebView(for: tab)
+            {
                 webView.findText("banana", forward: true, matchCase: false, findNext: false)
             }
         }
@@ -291,14 +294,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let baselineDPR = baseline else {
                 baseline = dpr
                 if let tab = session.orderedTabs.first,
-                   let webView = self.runtime.liveWebView(for: tab) {
+                   let webView = runtime.liveWebView(for: tab)
+                {
                     webView.zoomFactor = 1.5
                     zoomApplied = true
                 }
                 return
             }
             if zoomApplied, dpr >= baselineDPR * 1.4 {
-                self.window.title = "zoom:\(String(format: "%.1f", dpr / baselineDPR))"
+                window.title = "zoom:\(String(format: "%.1f", dpr / baselineDPR))"
             }
         }
         if let tab = session.orderedTabs.first {
@@ -345,10 +349,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if msg == "wrote" {
                 // Writer done — waking the reader (its own isolated store) loads
                 // ?role=reader, which reports what IT sees in localStorage.
-                self.runtime.session.selectedTabID = readerTab.id
+                runtime.session.selectedTabID = readerTab.id
             } else if msg.hasPrefix("read:") {
                 let value = String(msg.dropFirst("read:".count))
-                self.window.title = value == "EMPTY"
+                window.title = value == "EMPTY"
                     ? "isolation:isolated"
                     : "isolation:LEAKED(\(value))"
             }

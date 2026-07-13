@@ -63,6 +63,26 @@ targets:
       - name: "[ChromiumKit] Embed framework + helpers"
         runOnlyWhenInstalling: false
         shell: /bin/bash
+        # The framework inputs REQUEST ordering after the SPM embed Copy and
+        # Xcode's sign-on-copy (`CodeSign …/Versions/A`), but CI proved
+        # (2026-07-13, three distinct interleavings) they do NOT reliably order
+        # against those synthesized tasks. The real protection lives in
+        # embed-chromiumkit.sh: ad-hoc builds don't touch the framework at all,
+        # and real-identity builds quiesce-wait + retry around Xcode's signer.
+        # Keep the inputs anyway — they help scheduling and, with the outputs,
+        # let Xcode skip this phase on no-op builds.
+        inputFiles:
+          - $(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/Chromium Embedded Framework.framework
+          - $(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A
+          - $(BUILT_PRODUCTS_DIR)/HelloChromiumHelper
+          - $(SRCROOT)/../../scripts/embed-chromiumkit.sh
+          - $(SRCROOT)/../../scripts/helper.plist.in
+        outputFiles:
+          - $(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/$(PRODUCT_NAME) Helper.app/Contents/MacOS/$(PRODUCT_NAME) Helper
+          - $(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/$(PRODUCT_NAME) Helper (GPU).app/Contents/MacOS/$(PRODUCT_NAME) Helper (GPU)
+          - $(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/$(PRODUCT_NAME) Helper (Renderer).app/Contents/MacOS/$(PRODUCT_NAME) Helper (Renderer)
+          - $(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/$(PRODUCT_NAME) Helper (Plugin).app/Contents/MacOS/$(PRODUCT_NAME) Helper (Plugin)
+          - $(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/$(PRODUCT_NAME) Helper (Alerts).app/Contents/MacOS/$(PRODUCT_NAME) Helper (Alerts)
         script: |
           set -euo pipefail
           PKG="$SRCROOT/../.."

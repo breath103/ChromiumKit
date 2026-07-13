@@ -92,7 +92,7 @@ final class TabRuntime: NSObject {
     @discardableResult
     func wake(_ record: TabRecord) -> ChromiumWebView {
         if let existing = live[record.id] { return existing.webView }
-        let webView: ChromiumWebView =
+        let webView =
             if let store = dataStoreProvider?(record) {
                 ChromiumWebView(frame: .zero, url: record.url, dataStore: store)
             } else {
