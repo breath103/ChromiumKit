@@ -61,20 +61,29 @@ static bool g_external_message_pump = false;
 - (void)terminate:(id)sender {
   id<NSApplicationDelegate> delegate = self.delegate;
   NSApplicationTerminateReply reply = NSTerminateNow;
-  if ([delegate respondsToSelector:@selector(applicationShouldTerminate:)]) {
+  BOOL delegateResponds =
+      [delegate respondsToSelector:@selector(applicationShouldTerminate:)];
+  if (delegateResponds) {
     reply = [delegate applicationShouldTerminate:self];
   }
+  NSLog(@"[ChromiumKit] terminate: delegateResponds=%d reply=%ld",
+        delegateResponds, (long)reply);
 
   switch (reply) {
     case NSTerminateCancel:
+      NSLog(@"[ChromiumKit] terminate: cancelled by delegate, no unwind");
       return;
     case NSTerminateLater:
       // The delegate will call `-replyToApplicationShouldTerminate:` when its
       // async teardown is done; unwind there.
+      NSLog(@"[ChromiumKit] terminate: deferred (NSTerminateLater), awaiting "
+            @"replyToApplicationShouldTerminate:");
       cefTerminationDeferred_ = YES;
       return;
     case NSTerminateNow:
     default:
+      NSLog(@"[ChromiumKit] terminate: NSTerminateNow, posting willTerminate + "
+            @"unwinding run loop");
       [[NSNotificationCenter defaultCenter]
           postNotificationName:NSApplicationWillTerminateNotification
                         object:self];
@@ -84,9 +93,13 @@ static bool g_external_message_pump = false;
 }
 
 - (void)replyToApplicationShouldTerminate:(BOOL)shouldTerminate {
+  NSLog(@"[ChromiumKit] replyToApplicationShouldTerminate:%d deferred=%d",
+        shouldTerminate, cefTerminationDeferred_);
   if (cefTerminationDeferred_) {
     cefTerminationDeferred_ = NO;
     if (shouldTerminate) {
+      NSLog(@"[ChromiumKit] replyToApplicationShouldTerminate: posting "
+            @"willTerminate + unwinding run loop");
       [[NSNotificationCenter defaultCenter]
           postNotificationName:NSApplicationWillTerminateNotification
                         object:self];
