@@ -145,13 +145,28 @@ fi
 # libraries in a future version.
 FRAMEWORK="$FRAMEWORKS/Chromium Embedded Framework.framework"
 LIBRARIES="$FRAMEWORK/Versions/A/Libraries"
-if [[ -d "$LIBRARIES" ]]; then
-  echo "[ChromiumKit]  → signing framework nested dylibs (identity: $SIGN_ID, hardened runtime)"
-  for dylib in "$LIBRARIES/"*.dylib; do
-    [[ -e "$dylib" ]] || continue  # glob matched nothing
-    codesign --force --sign "$SIGN_ID" --options runtime "$TIMESTAMP_FLAG" "$dylib"
-  done
+
+# HARD-FAIL if the framework isn't fully in place. Under Xcode the framework is
+# auto-embedded by the SPM binary-dependency copy task; if this script runs
+# before that ~700MB copy completes (no input edge declared on the script
+# phase), the Libraries dir is missing and codesigning the half-copied bundle
+# fails cryptically ("bundle format unrecognized"). Worse, when this check was
+# a silent `if -d` skip, a lost race would SKIP dylib signing entirely and the
+# build would ship un-notarizable. Fail loudly instead — the fix is to declare
+# ".../Contents/Frameworks/Chromium Embedded Framework.framework" as an
+# inputFile of the run-script phase so Xcode orders it after the embed.
+if [[ ! -f "$FRAMEWORK/Versions/A/Chromium Embedded Framework" || ! -d "$LIBRARIES" ]]; then
+  echo "error: CEF framework at $FRAMEWORK is missing or incomplete (embed copy" >&2
+  echo "       not finished?). Declare the embedded framework as an inputFile of" >&2
+  echo "       this run-script phase so it runs after Xcode's embed copy." >&2
+  exit 1
 fi
+
+echo "[ChromiumKit]  → signing framework nested dylibs (identity: $SIGN_ID, hardened runtime)"
+for dylib in "$LIBRARIES/"*.dylib; do
+  [[ -e "$dylib" ]] || continue  # glob matched nothing
+  codesign --force --sign "$SIGN_ID" --options runtime "$TIMESTAMP_FLAG" "$dylib"
+done
 
 # Sign the framework BUNDLE — regardless of the Xcode branch, and AFTER the
 # nested dylibs above.

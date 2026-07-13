@@ -63,6 +63,23 @@ targets:
       - name: "[ChromiumKit] Embed framework + helpers"
         runOnlyWhenInstalling: false
         shell: /bin/bash
+        # The framework input is load-bearing, not an optimization: under Xcode
+        # the CEF framework is auto-embedded by the SPM binary-dependency copy
+        # task, and without this input edge the script phase can run CONCURRENTLY
+        # with that ~700MB copy — codesigning a half-copied bundle fails with
+        # "bundle format unrecognized" (bit CI 2026-07-13). Declaring the
+        # embedded framework as an input orders the script after the copy.
+        inputFiles:
+          - $(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/Chromium Embedded Framework.framework
+          - $(BUILT_PRODUCTS_DIR)/HelloChromiumHelper
+          - $(SRCROOT)/../../scripts/embed-chromiumkit.sh
+          - $(SRCROOT)/../../scripts/helper.plist.in
+        outputFiles:
+          - $(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/$(PRODUCT_NAME) Helper.app/Contents/MacOS/$(PRODUCT_NAME) Helper
+          - $(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/$(PRODUCT_NAME) Helper (GPU).app/Contents/MacOS/$(PRODUCT_NAME) Helper (GPU)
+          - $(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/$(PRODUCT_NAME) Helper (Renderer).app/Contents/MacOS/$(PRODUCT_NAME) Helper (Renderer)
+          - $(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/$(PRODUCT_NAME) Helper (Plugin).app/Contents/MacOS/$(PRODUCT_NAME) Helper (Plugin)
+          - $(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/$(PRODUCT_NAME) Helper (Alerts).app/Contents/MacOS/$(PRODUCT_NAME) Helper (Alerts)
         script: |
           set -euo pipefail
           PKG="$SRCROOT/../.."

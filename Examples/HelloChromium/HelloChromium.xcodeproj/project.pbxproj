@@ -435,11 +435,20 @@
 			inputFileListPaths = (
 			);
 			inputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/Chromium Embedded Framework.framework",
+				"$(BUILT_PRODUCTS_DIR)/HelloChromiumHelper",
+				"$(SRCROOT)/../../scripts/embed-chromiumkit.sh",
+				"$(SRCROOT)/../../scripts/helper.plist.in",
 			);
 			name = "[ChromiumKit] Embed framework + helpers";
 			outputFileListPaths = (
 			);
 			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/$(PRODUCT_NAME) Helper.app/Contents/MacOS/$(PRODUCT_NAME) Helper",
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/$(PRODUCT_NAME) Helper (GPU).app/Contents/MacOS/$(PRODUCT_NAME) Helper (GPU)",
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/$(PRODUCT_NAME) Helper (Renderer).app/Contents/MacOS/$(PRODUCT_NAME) Helper (Renderer)",
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/$(PRODUCT_NAME) Helper (Plugin).app/Contents/MacOS/$(PRODUCT_NAME) Helper (Plugin)",
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/$(PRODUCT_NAME) Helper (Alerts).app/Contents/MacOS/$(PRODUCT_NAME) Helper (Alerts)",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
