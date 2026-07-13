@@ -146,30 +146,48 @@ fi
 FRAMEWORK="$FRAMEWORKS/Chromium Embedded Framework.framework"
 LIBRARIES="$FRAMEWORK/Versions/A/Libraries"
 
-# HARD-FAIL if the framework isn't fully in place. Under Xcode the framework is
-# auto-embedded by the SPM binary-dependency copy task; if this script runs
-# before that ~700MB copy completes (no input edge declared on the script
-# phase), the Libraries dir is missing and codesigning the half-copied bundle
-# fails cryptically ("bundle format unrecognized"). Worse, when this check was
-# a silent `if -d` skip, a lost race would SKIP dylib signing entirely and the
-# build would ship un-notarizable. Fail loudly instead — the fix is to declare
-# ".../Contents/Frameworks/Chromium Embedded Framework.framework" as an
-# inputFile of the run-script phase so Xcode orders it after the embed.
-if [[ ! -f "$FRAMEWORK/Versions/A/Chromium Embedded Framework" || ! -d "$LIBRARIES" ]]; then
-  echo "error: CEF framework at $FRAMEWORK is missing or incomplete (embed copy" >&2
-  echo "       not finished?). Declare the embedded framework as an inputFile of" >&2
-  echo "       this run-script phase so it runs after Xcode's embed copy." >&2
-  exit 1
+# Ad-hoc ("-", local dev + CI): do NOT touch the framework at all — same policy
+# as the helpers above. The nested-dylib + bundle re-sign exists solely so
+# Apple NOTARIZATION accepts a Developer ID build; re-signing ad-hoc
+# accomplishes nothing (CEF ships validly signed). It's also actively unsafe
+# under Xcode: the SPM embed copy task and Xcode's own sign-on-copy
+# (`CodeSign …/Versions/A`) run CONCURRENTLY with this script phase —
+# input-edge declarations on the phase do NOT reliably order against those
+# synthesized tasks (proven on CI 2026-07-13: three runs, three interleavings —
+# half-copied bundle "bundle format unrecognized", two codesigns "No such file
+# or directory", and a live signer's "Chromium Embedded Framework.cstemp"
+# breaking enumeration). Skipping the framework entirely for ad-hoc makes the
+# race unreachable where the re-sign buys nothing.
+if [[ "$SIGN_ID" == "-" ]]; then
+  echo "[ChromiumKit]  → ad-hoc identity: leaving CEF framework's shipped signatures intact"
+else
+  # Real (Developer ID) identity — the notarization path. HARD-FAIL if the
+  # framework isn't fully in place: when this check was a silent `if -d` skip,
+  # a lost race would SKIP dylib signing entirely and the build would ship
+  # un-notarizable without a word.
+  if [[ ! -f "$FRAMEWORK/Versions/A/Chromium Embedded Framework" || ! -d "$LIBRARIES" ]]; then
+    echo "error: CEF framework at $FRAMEWORK is missing or incomplete (embed copy" >&2
+    echo "       not finished?). Xcode's embed of the framework must complete before" >&2
+    echo "       this script phase runs." >&2
+    exit 1
+  fi
+
+  # Wait (bounded) for Xcode's sign-on-copy to quiesce: while its codesign is
+  # in flight, `<name>.cstemp` temp files exist inside the bundle and any
+  # concurrent re-sign fails ("cannot find code object on disk").
+  for _ in $(seq 1 60); do
+    compgen -G "$FRAMEWORK/Versions/A/*.cstemp" > /dev/null || break
+    sleep 1
+  done
+
+  echo "[ChromiumKit]  → signing framework nested dylibs (identity: $SIGN_ID, hardened runtime)"
+  for dylib in "$LIBRARIES/"*.dylib; do
+    [[ -e "$dylib" ]] || continue  # glob matched nothing
+    codesign --force --sign "$SIGN_ID" --options runtime "$TIMESTAMP_FLAG" "$dylib"
+  done
 fi
 
-echo "[ChromiumKit]  → signing framework nested dylibs (identity: $SIGN_ID, hardened runtime)"
-for dylib in "$LIBRARIES/"*.dylib; do
-  [[ -e "$dylib" ]] || continue  # glob matched nothing
-  codesign --force --sign "$SIGN_ID" --options runtime "$TIMESTAMP_FLAG" "$dylib"
-done
-
-# Sign the framework BUNDLE — regardless of the Xcode branch, and AFTER the
-# nested dylibs above.
+# Sign the framework BUNDLE (real identity only) — AFTER the nested dylibs.
 #
 # This must run under Xcode too. Under Xcode the framework is auto-embedded and
 # signed on copy, but the nested-dylib signing above reseals files *inside* the
@@ -184,9 +202,28 @@ done
 #
 # Inside-out order: nested dylibs (above) → framework bundle (here) → helpers
 # (above) → host (Xcode last, or the standalone branch below).
-echo "[ChromiumKit]  → signing framework bundle (identity: $SIGN_ID)"
-codesign --force --sign "$SIGN_ID" --options runtime "$TIMESTAMP_FLAG" \
-  "$FRAMEWORK"
+#
+# Retry: if Xcode's sign-on-copy is STILL in flight despite the quiesce wait,
+# its .cstemp temp files / renames make our codesign fail spuriously; give the
+# signer time to finish, drop any orphaned .cstemp (an interrupted signer never
+# cleans them up, and enumeration chokes on them forever), and try again.
+if [[ "$SIGN_ID" != "-" ]]; then
+  echo "[ChromiumKit]  → signing framework bundle (identity: $SIGN_ID)"
+  signed=0
+  for attempt in 1 2 3; do
+    if codesign --force --sign "$SIGN_ID" --options runtime "$TIMESTAMP_FLAG" \
+        "$FRAMEWORK"; then
+      signed=1; break
+    fi
+    echo "[ChromiumKit]     bundle sign attempt $attempt failed; retrying" >&2
+    sleep 3
+    rm -f "$FRAMEWORK/Versions/A/"*.cstemp
+  done
+  if [[ "$signed" != 1 ]]; then
+    echo "error: signing the CEF framework bundle failed after 3 attempts" >&2
+    exit 1
+  fi
+fi
 
 # Skip host signing when running under Xcode — Xcode signs the host app
 # itself as the final build step, after this script. Doing it here too fails

@@ -63,14 +63,14 @@ targets:
       - name: "[ChromiumKit] Embed framework + helpers"
         runOnlyWhenInstalling: false
         shell: /bin/bash
-        # The two framework inputs are load-bearing, not an optimization: under
-        # Xcode the CEF framework is auto-embedded by TWO tasks the script must
-        # run after — the SPM binary-dependency Copy (output node: the .framework
-        # dir) and Xcode's sign-on-copy `CodeSign …/Versions/A` (output node:
-        # Versions/A). Missing either edge lets the script run CONCURRENTLY with
-        # that task on the ~700MB bundle: mid-copy → "bundle format unrecognized";
-        # mid-sign → two codesigns interleave → "No such file or directory"
-        # (both bit CI 2026-07-13, timestamps prove the overlap).
+        # The framework inputs REQUEST ordering after the SPM embed Copy and
+        # Xcode's sign-on-copy (`CodeSign …/Versions/A`), but CI proved
+        # (2026-07-13, three distinct interleavings) they do NOT reliably order
+        # against those synthesized tasks. The real protection lives in
+        # embed-chromiumkit.sh: ad-hoc builds don't touch the framework at all,
+        # and real-identity builds quiesce-wait + retry around Xcode's signer.
+        # Keep the inputs anyway — they help scheduling and, with the outputs,
+        # let Xcode skip this phase on no-op builds.
         inputFiles:
           - $(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/Chromium Embedded Framework.framework
           - $(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A
