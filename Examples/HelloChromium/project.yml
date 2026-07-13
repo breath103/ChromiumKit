@@ -63,14 +63,17 @@ targets:
       - name: "[ChromiumKit] Embed framework + helpers"
         runOnlyWhenInstalling: false
         shell: /bin/bash
-        # The framework input is load-bearing, not an optimization: under Xcode
-        # the CEF framework is auto-embedded by the SPM binary-dependency copy
-        # task, and without this input edge the script phase can run CONCURRENTLY
-        # with that ~700MB copy — codesigning a half-copied bundle fails with
-        # "bundle format unrecognized" (bit CI 2026-07-13). Declaring the
-        # embedded framework as an input orders the script after the copy.
+        # The two framework inputs are load-bearing, not an optimization: under
+        # Xcode the CEF framework is auto-embedded by TWO tasks the script must
+        # run after — the SPM binary-dependency Copy (output node: the .framework
+        # dir) and Xcode's sign-on-copy `CodeSign …/Versions/A` (output node:
+        # Versions/A). Missing either edge lets the script run CONCURRENTLY with
+        # that task on the ~700MB bundle: mid-copy → "bundle format unrecognized";
+        # mid-sign → two codesigns interleave → "No such file or directory"
+        # (both bit CI 2026-07-13, timestamps prove the overlap).
         inputFiles:
           - $(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/Chromium Embedded Framework.framework
+          - $(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A
           - $(BUILT_PRODUCTS_DIR)/HelloChromiumHelper
           - $(SRCROOT)/../../scripts/embed-chromiumkit.sh
           - $(SRCROOT)/../../scripts/helper.plist.in

@@ -436,6 +436,7 @@
 			);
 			inputPaths = (
 				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/Chromium Embedded Framework.framework",
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/Contents/Frameworks/Chromium Embedded Framework.framework/Versions/A",
 				"$(BUILT_PRODUCTS_DIR)/HelloChromiumHelper",
 				"$(SRCROOT)/../../scripts/embed-chromiumkit.sh",
 				"$(SRCROOT)/../../scripts/helper.plist.in",
